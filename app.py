@@ -12,30 +12,38 @@ st.set_page_config(
 st.title("🚜 QORILAZO - Control y Predicción de Mantenimiento")
 st.caption("Corredor Minero Apurímac - Cusco")
 
-# Obtener credenciales desde los Secrets
+# Lectura segura de los Secrets de Streamlit
 try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    SUPABASE_URL = st.secrets["SUPABASE_URL"].strip().rstrip('/')
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"].strip()
 except Exception:
     st.error("⚠️ Faltan los Secrets (SUPABASE_URL o SUPABASE_KEY) en Streamlit Cloud.")
     st.stop()
 
-# Función para consultar datos vía API REST directa
+# Función para consultar las tablas mediante la API REST nativa
 def consultar_tabla(nombre_tabla):
-    endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}?select=*"
+    endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}"
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json"
     }
-    response = requests.get(endpoint, headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        st.error(f"Error {response.status_code}: {response.text}")
+    params = {
+        "select": "*"
+    }
+    
+    try:
+        response = requests.get(endpoint, headers=headers, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"❌ Error HTTP {response.status_code}: {response.text}")
+            return []
+    except Exception as e:
+        st.error(f"⚠️ Error de conexión a Supabase: {e}")
         return []
 
-# Menú Navegación
+# Menú de Navegación Lateral
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
     [
@@ -47,7 +55,7 @@ modulo = st.sidebar.radio(
     ]
 )
 
-# Módulo 1: Lista Maestra
+# Módulo 1: Lista Maestra de Equipos
 if modulo == "1. Lista Maestra & Acreditación":
     st.header("📋 Lista Maestra de Equipos y Acreditación Minera")
     
@@ -55,7 +63,7 @@ if modulo == "1. Lista Maestra & Acreditación":
     
     if equipos:
         df_equipos = pd.DataFrame(equipos)
-        st.success(f"✅ Se cargaron {len(df_equipos)} equipos en la base de datos.")
+        st.success(f"✅ Conexión exitosa. Se cargaron {len(df_equipos)} equipos.")
         st.dataframe(df_equipos, use_container_width=True)
     else:
         st.info("No hay equipos registrados o la tabla está vacía en Supabase.")
