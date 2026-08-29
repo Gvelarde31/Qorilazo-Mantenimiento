@@ -36,6 +36,24 @@ def consultar_tabla(nombre_tabla):
     except Exception:
         return []
 
+# Función para evaluar el estado del documento (Semáforo)
+def calcular_estado_semaforo(fecha_str):
+    if not fecha_str or pd.isna(fecha_str):
+        return "⚪ Sin fecha"
+    try:
+        fecha_venc = datetime.strptime(str(fecha_str), "%Y-%m-%d").date()
+        hoy = datetime.now().date()
+        dias = (fecha_venc - hoy).days
+        
+        if dias <= 0:
+            return f"🔴 Vencido ({abs(dias)}d)"
+        elif dias <= 15:
+            return f"🟡 Por vencer ({dias}d)"
+        else:
+            return f"🟢 Vigente ({dias}d)"
+    except Exception:
+        return "⚪ Formato inválido"
+
 # Menú Lateral
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
@@ -57,16 +75,31 @@ if modulo == "1. Lista Maestra & Acreditación":
     if equipos:
         df = pd.DataFrame(equipos)
         
-        # Métrica / KPIs Rápidos
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Flota Registrada", len(df))
-        col2.metric("Equipos Operativos", len(df[df['estado'] == 'OPERATIVO']) if 'estado' in df.columns else len(df))
-        col3.metric("Ubicación Principal", "Corredor Minero")
+        # Columnas de fechas de acreditación a evaluar
+        columnas_fechas = [col for col in df.columns if col.startswith("fecha_venc_")]
+        
+        # Generar columnas de semáforo dinámicas
+        for col in columnas_fechas:
+            nombre_semaforo = col.replace("fecha_venc_", "estado_")
+            df[nombre_semaforo] = df[col].apply(calcular_estado_semaforo)
+            
+        # Conteo de alertas globales
+        todos_estados = df[[c for c in df.columns if c.startswith("estado_")]].values.flatten()
+        vencidos = sum(1 for e in todos_estados if "🔴" in str(e))
+        por_vencer = sum(1 for e in todos_estados if "🟡" in str(e))
+        vigentes = sum(1 for e in todos_estados if "🟢" in str(e))
+        
+        # Métricas KPI
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Total Flota", len(df))
+        kpi2.metric("Documentos Vigentes", vigentes)
+        kpi3.metric("Por Vencer (≤15 días)", por_vencer)
+        kpi4.metric("Documentos Vencidos", vencidos)
         
         st.divider()
-        st.subheader("📌 Estado de la Flota")
+        st.subheader("📌 Monitoreo de Acreditaciones Mineras")
         
-        # Mostrar tabla interactiva
+        # Mostrar tabla organizada
         st.dataframe(df, use_container_width=True)
     else:
         st.info("No hay datos registrados aún. Asegúrate de importar tu CSV en Supabase.")
