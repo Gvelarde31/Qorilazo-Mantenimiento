@@ -95,7 +95,7 @@ if modulo == "1. Lista Maestra & Acreditación":
             "fecha_venc_soat": "SOAT",
             "fecha_venc_poliza": "Póliza",
             "fecha_retorqueo_ruedas": "Retorqueo Ruedas",
-            "fecha_venc_citv": "CITV",
+            "fecha_venc_citv": "Revisión técnica",
             "fecha_venc_gps": "GPS",
             "fecha_venc_tarjeta_mercancias": "Tarjeta Mercancías",
             "fecha_venc_cert_operatividad": "Certif. Operatividad",
