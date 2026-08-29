@@ -21,7 +21,7 @@ except Exception:
     st.error("⚠️ Faltan los Secrets de Supabase en Streamlit Cloud.")
     st.stop()
 
-# Función para consultar datos
+# Funciones de interacción con la API REST de Supabase
 def consultar_tabla(nombre_tabla):
     url_endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}"
     headers = {
@@ -36,7 +36,22 @@ def consultar_tabla(nombre_tabla):
     except Exception:
         return []
 
-# Función de evaluación del Semáforo según las reglas
+def insertar_registro(nombre_tabla, datos):
+    url_endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+    }
+    try:
+        response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
+        return response.status_code in [200, 201]
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
+        return False
+
+# Evaluación de Semáforo para Módulo 1
 def evaluar_fecha(fecha_str):
     if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
         return "⚪ Sin fecha", "GRIS", None
@@ -57,7 +72,7 @@ def evaluar_fecha(fecha_str):
     except Exception:
         return "⚪ Formato inválido", "GRIS", None
 
-# Menú Lateral
+# Menú Lateral de Navegación
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
     [
@@ -69,7 +84,9 @@ modulo = st.sidebar.radio(
     ]
 )
 
-# Módulo 1: Lista Maestra & Dashboard de Alertas
+# ==========================================
+# MÓDULO 1: LISTA MAESTRA & SEMÁFORO
+# ==========================================
 if modulo == "1. Lista Maestra & Acreditación":
     st.header("📋 Dashboard de Control y Acreditaciones Mineras")
     
@@ -78,7 +95,6 @@ if modulo == "1. Lista Maestra & Acreditación":
     if equipos:
         df = pd.DataFrame(equipos)
         
-        # Lista exacta de columnas a monitorear
         cols_monitoreadas = [
             "fecha_venc_soat",
             "fecha_venc_poliza",
@@ -90,19 +106,17 @@ if modulo == "1. Lista Maestra & Acreditación":
             "fecha_venc_cert_inspección"
         ]
         
-        # Mapeo para nombres más limpios en la interfaz
         nombres_amigables = {
             "fecha_venc_soat": "SOAT",
             "fecha_venc_poliza": "Póliza",
             "fecha_retorqueo_ruedas": "Retorqueo Ruedas",
-            "fecha_venc_citv": "Revisión técnica",
+            "fecha_venc_citv": "Revisión Técnica (CITV)",
             "fecha_venc_gps": "GPS",
             "fecha_venc_tarjeta_mercancias": "Tarjeta Mercancías",
             "fecha_venc_cert_operatividad": "Certif. Operatividad",
             "fecha_venc_cert_inspección": "Certif. Inspección"
         }
 
-        # Procesar datos de semáforo
         resumen_alertas = []
         for col in cols_monitoreadas:
             if col in df.columns:
@@ -124,10 +138,7 @@ if modulo == "1. Lista Maestra & Acreditación":
 
         df_resumen = pd.DataFrame(resumen_alertas)
 
-        # --- SECCIÓN 1: DASHBOARD RESUMEN DE ALERTAS ---
         st.subheader("🚨 Resumen Rápido de Estado por Documento / Permiso")
-        
-        # Mostrar métricas en formato de tarjetas compactas
         cols_grid = st.columns(4)
         for idx, row in df_resumen.iterrows():
             col_target = cols_grid[idx % 4]
@@ -148,8 +159,6 @@ if modulo == "1. Lista Maestra & Acreditación":
                 )
 
         st.divider()
-
-        # --- SECCIÓN 2: VISTA DETALLADA Y FILTROS ---
         st.subheader("🔍 Filtro de Flota por Permiso")
         
         doc_seleccionado = st.selectbox(
@@ -157,17 +166,119 @@ if modulo == "1. Lista Maestra & Acreditación":
             options=["TODOS"] + [nombres_amigables.get(c, c) for c in cols_monitoreadas if c in df.columns]
         )
 
-        # Formatear la vista final de la tabla
         columnas_base = [col for col in ["placa", "codigo", "marca", "modelo", "comentario", "fotocheck"] if col in df.columns]
         
         if doc_seleccionado == "TODOS":
             cols_mostrar = columnas_base + [f"estado_{c}" for c in cols_monitoreadas if f"estado_{c}" in df.columns]
         else:
-            # Obtener nombre original de columna
             clave_col = [k for k, v in nombres_amigables.items() if v == doc_seleccionado][0]
             cols_mostrar = columnas_base + [clave_col, f"estado_{clave_col}"]
 
         st.dataframe(df[cols_mostrar], use_container_width=True)
 
     else:
-        st.info("No hay datos registrados aún. Importa tu flota en Supabase para visualizar el dashboard.")
+        st.info("No hay datos registrados en la flota aún.")
+
+# ==========================================
+# MÓDULO 2: REGISTRO DIARIO DE PARTES Y TAREO
+# ==========================================
+elif modulo == "2. Registro Diario de Partes y Tareo":
+    st.header("📝 Registro Diario de Partes de Trabajo y Tareo")
+    
+    equipos = consultar_tabla("equipos")
+    
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos' para asociar el parte diario.")
+    else:
+        df_equipos = pd.DataFrame(equipos)
+        
+        # Identificar la columna que contiene el identificador del equipo (codigo o placa)
+        col_id_equipo = "codigo" if "codigo" in df_equipos.columns else ("placa" if "placa" in df_equipos.columns else df_equipos.columns[0])
+        
+        # Lista desplegable de equipos con su marca/modelo
+        opciones_equipos = [
+            f"{row.get(col_id_equipo, '')} - {row.get('marca', '')} {row.get('modelo', '')}".strip(" -")
+            for _, row in df_equipos.iterrows()
+        ]
+        
+        st.subheader("📋 Formulario de Ingreso de Parte Diario")
+        
+        with st.form("form_parte_diario", clear_on_submit=True):
+            # Sección 1: Datos Generales
+            st.markdown("##### 📍 Datos de Control y Operación")
+            col_1, col_2, col_3 = st.columns(3)
+            
+            with col_1:
+                equipo_sel = st.selectbox("Código / Equipo *", opciones_equipos)
+                fecha_parte = st.date_input("Fecha del Parte *", datetime.now().date())
+            with col_2:
+                turno = st.selectbox("Turno *", ["Día", "Noche"])
+                frente_asignado = st.text_input("Frente Asignado")
+            with col_3:
+                actividad = st.text_input("Actividad Realizada")
+                combustible = st.number_input("Combustible Abastecido (Galones)", min_value=0.0, step=0.5)
+
+            st.divider()
+            
+            # Sección 2: Horómetros y Kilometraje
+            st.markdown("##### ⏱️ Control de Horómetros y Kilometraje")
+            col_h1, col_h2 = st.columns(2)
+            
+            with col_h1:
+                st.caption(" Horómetro (Horas de Operación)")
+                horo_init = st.number_input("Horómetro Inicial", min_value=0.0, step=0.1)
+                horo_fin = st.number_input("Horómetro Final", min_value=0.0, step=0.1)
+                horas_trab = max(0.0, horo_fin - horo_init)
+                st.info(f"**Horas Trabajadas:** `{horas_trab:.1f} hrs`")
+
+            with col_h2:
+                st.caption(" 🛣️ Odómetro (Kilometraje)")
+                km_init = st.number_input("Kilómetro Inicial", min_value=0.0, step=1.0)
+                km_fin = st.number_input("Kilómetro Final", min_value=0.0, step=1.0)
+                km_rec = max(0.0, km_fin - km_init)
+                st.info(f"**Kilómetros Recorridos:** `{km_rec:.1f} km`")
+
+            st.divider()
+            observaciones = st.text_area("Observaciones / Novedades del Turno")
+            
+            guardar = st.form_submit_button("💾 Guardar Parte Diario en Supabase", use_container_width=True)
+            
+            if guardar:
+                if horo_fin < horo_init:
+                    st.error("El Horómetro Final no puede ser menor al Horómetro Inicial.")
+                elif km_fin < km_init:
+                    st.error("El Kilómetro Final no puede ser menor al Kilómetro Inicial.")
+                else:
+                    # Extraer el código del equipo seleccionado
+                    cod_equipo_clean = equipo_sel.split(" - ")[0].strip()
+                    
+                    # Estructura del JSON lista para insertar en Supabase
+                    nuevo_parte = {
+                        "fecha": str(fecha_parte),
+                        "codigo_equipo": cod_equipo_clean,
+                        "turno": turno,
+                        "horometro_inicial": horo_init,
+                        "horometro_final": horo_fin,
+                        "horas_trabajadas": horas_trab,
+                        "kilometro_inicial": km_init,
+                        "kilometro_final": km_fin,
+                        "kilometros_recorridos": km_rec,
+                        "frente_asignado": frente_asignado,
+                        "actividad": actividad,
+                        "combustible_galones": combustible,
+                        "observaciones": observaciones
+                    }
+                    
+                    exito = insertar_registro("partes_diarios", nuevo_parte)
+                    if exito:
+                        st.success(f"✅ Parte diario registrado correctamente para el equipo `{cod_equipo_clean}`.")
+                    else:
+                        st.error("❌ No se pudo guardar en Supabase. Confirma que la tabla se llama 'partes_diarios'.")
+
+        st.divider()
+        st.subheader("📊 Historial de Partes Diarios Registrados")
+        partes_registrados = consultar_tabla("partes_diarios")
+        if partes_registrados:
+            st.dataframe(pd.DataFrame(partes_registrados), use_container_width=True)
+        else:
+            st.info("Aún no se han registrado partes diarios.")
