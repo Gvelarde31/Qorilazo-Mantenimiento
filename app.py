@@ -46,10 +46,12 @@ def insertar_registro(nombre_tabla, datos):
     }
     try:
         response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
-        return response.status_code in [200, 201]
+        if response.status_code in [200, 201]:
+            return True, "OK"
+        else:
+            return False, response.text
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
-        return False
+        return False, str(e)
 
 # Evaluación de Semáforo para Módulo 1
 def evaluar_fecha(fecha_str):
@@ -188,28 +190,24 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
     equipos = consultar_tabla("equipos")
     
     if not equipos:
-        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos' para asociar el parte diario.")
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
         
-        # Identificar la columna que contiene el identificador del equipo (codigo o placa)
-        col_id_equipo = "codigo" if "codigo" in df_equipos.columns else ("placa" if "placa" in df_equipos.columns else df_equipos.columns[0])
+        # Determinar la columna de código en la tabla equipos
+        col_codigo = "codigo" if "codigo" in df_equipos.columns else ("codigo_equipo" if "codigo_equipo" in df_equipos.columns else "placa")
         
-        # Lista desplegable de equipos con su marca/modelo
-        opciones_equipos = [
-            f"{row.get(col_id_equipo, '')} - {row.get('marca', '')} {row.get('modelo', '')}".strip(" -")
-            for _, row in df_equipos.iterrows()
-        ]
+        # Extraer lista limpia y única de códigos de equipos válidos
+        lista_codigos = sorted(list(set(df_equipos[col_codigo].dropna().astype(str))))
         
         st.subheader("📋 Formulario de Ingreso de Parte Diario")
         
         with st.form("form_parte_diario", clear_on_submit=True):
-            # Sección 1: Datos Generales
-            st.markdown("##### 📍 Datos de Control y Operación")
+            st.markdown("##### 📍 Identificación del Equipo y Datos Operativos")
             col_1, col_2, col_3 = st.columns(3)
             
             with col_1:
-                equipo_sel = st.selectbox("Código / Equipo *", opciones_equipos)
+                codigo_sel = st.selectbox("Código del Equipo (Único en Flota) *", lista_codigos)
                 fecha_parte = st.date_input("Fecha del Parte *", datetime.now().date())
             with col_2:
                 turno = st.selectbox("Turno *", ["Día", "Noche"])
@@ -220,19 +218,18 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
 
             st.divider()
             
-            # Sección 2: Horómetros y Kilometraje
-            st.markdown("##### ⏱️ Control de Horómetros y Kilometraje")
+            st.markdown("##### ⏱️ Lectura de Horómetros y Kilometraje")
             col_h1, col_h2 = st.columns(2)
             
             with col_h1:
-                st.caption(" Horómetro (Horas de Operación)")
+                st.caption(" Horómetro (Horas)")
                 horo_init = st.number_input("Horómetro Inicial", min_value=0.0, step=0.1)
                 horo_fin = st.number_input("Horómetro Final", min_value=0.0, step=0.1)
                 horas_trab = max(0.0, horo_fin - horo_init)
                 st.info(f"**Horas Trabajadas:** `{horas_trab:.1f} hrs`")
 
             with col_h2:
-                st.caption(" 🛣️ Odómetro (Kilometraje)")
+                st.caption(" 🛣️ Odómetro (Kilómetros)")
                 km_init = st.number_input("Kilómetro Inicial", min_value=0.0, step=1.0)
                 km_fin = st.number_input("Kilómetro Final", min_value=0.0, step=1.0)
                 km_rec = max(0.0, km_fin - km_init)
@@ -241,21 +238,17 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.divider()
             observaciones = st.text_area("Observaciones / Novedades del Turno")
             
-            guardar = st.form_submit_button("💾 Guardar Parte Diario en Supabase", use_container_width=True)
+            guardar = st.form_submit_button("💾 Guardar Parte Diario", use_container_width=True)
             
             if guardar:
                 if horo_fin < horo_init:
-                    st.error("El Horómetro Final no puede ser menor al Horómetro Inicial.")
+                    st.error("❌ El Horómetro Final no puede ser menor al Horómetro Inicial.")
                 elif km_fin < km_init:
-                    st.error("El Kilómetro Final no puede ser menor al Kilómetro Inicial.")
+                    st.error("❌ El Kilómetro Final no puede ser menor al Kilómetro Inicial.")
                 else:
-                    # Extraer el código del equipo seleccionado
-                    cod_equipo_clean = equipo_sel.split(" - ")[0].strip()
-                    
-                    # Estructura del JSON lista para insertar en Supabase
                     nuevo_parte = {
                         "fecha": str(fecha_parte),
-                        "codigo_equipo": cod_equipo_clean,
+                        "codigo_equipo": codigo_sel,
                         "turno": turno,
                         "horometro_inicial": horo_init,
                         "horometro_final": horo_fin,
@@ -269,11 +262,11 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                         "observaciones": observaciones
                     }
                     
-                    exito = insertar_registro("partes_diarios", nuevo_parte)
+                    exito, msg = insertar_registro("partes_diarios", nuevo_parte)
                     if exito:
-                        st.success(f"✅ Parte diario registrado correctamente para el equipo `{cod_equipo_clean}`.")
+                        st.success(f"✅ Parte diario registrado con éxito para el equipo `{codigo_sel}`.")
                     else:
-                        st.error("❌ No se pudo guardar en Supabase. Confirma que la tabla se llama 'partes_diarios'.")
+                        st.error(f"❌ Error al guardar en Supabase: {msg}")
 
         st.divider()
         st.subheader("📊 Historial de Partes Diarios Registrados")
@@ -281,4 +274,4 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         if partes_registrados:
             st.dataframe(pd.DataFrame(partes_registrados), use_container_width=True)
         else:
-            st.info("Aún no se han registrado partes diarios.")
+            st.info("Aún no se han registrado partes diarios en la base de datos.")
