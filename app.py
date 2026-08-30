@@ -168,7 +168,7 @@ if modulo == "1. Lista Maestra & Acreditación":
             options=["TODOS"] + [nombres_amigables.get(c, c) for c in cols_monitoreadas if c in df.columns]
         )
 
-        columnas_base = [col for col in ["placa", "codigo", "marca", "modelo", "comentario", "fotocheck"] if col in df.columns]
+        columnas_base = [col for col in ["placa", "codigo_interno", "marca", "modelo", "comentario", "fotocheck"] if col in df.columns]
         
         if doc_seleccionado == "TODOS":
             cols_mostrar = columnas_base + [f"estado_{c}" for c in cols_monitoreadas if f"estado_{c}" in df.columns]
@@ -194,11 +194,13 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
     else:
         df_equipos = pd.DataFrame(equipos)
         
-        # Determinar la columna de código en la tabla equipos
-        col_codigo = "codigo" if "codigo" in df_equipos.columns else ("codigo_equipo" if "codigo_equipo" in df_equipos.columns else "placa")
-        
-        # Extraer lista limpia y única de códigos de equipos válidos
-        lista_codigos = sorted(list(set(df_equipos[col_codigo].dropna().astype(str))))
+        # Búsqueda estricta de 'codigo_interno' en la tabla 'equipos'
+        if "codigo_interno" in df_equipos.columns:
+            lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
+        else:
+            # Fallback en caso de variación en el nombre de columna
+            col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
+            lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
         
         st.subheader("📋 Formulario de Ingreso de Parte Diario")
         
@@ -207,7 +209,7 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             col_1, col_2, col_3 = st.columns(3)
             
             with col_1:
-                codigo_sel = st.selectbox("Código del Equipo (Único en Flota) *", lista_codigos)
+                codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
                 fecha_parte = st.date_input("Fecha del Parte *", datetime.now().date())
             with col_2:
                 turno = st.selectbox("Turno *", ["Día", "Noche"])
