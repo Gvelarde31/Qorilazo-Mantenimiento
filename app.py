@@ -194,11 +194,9 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
     else:
         df_equipos = pd.DataFrame(equipos)
         
-        # Búsqueda estricta de 'codigo_interno' en la tabla 'equipos'
         if "codigo_interno" in df_equipos.columns:
             lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
         else:
-            # Fallback en caso de variación en el nombre de columna
             col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
             lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
         
@@ -228,14 +226,14 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 horo_init = st.number_input("Horómetro Inicial", min_value=0.0, step=0.1)
                 horo_fin = st.number_input("Horómetro Final", min_value=0.0, step=0.1)
                 horas_trab = max(0.0, horo_fin - horo_init)
-                st.info(f"**Horas Trabajadas:** `{horas_trab:.1f} hrs`")
+                st.info(f"**Horas Trabajadas (Cálculo Visual):** `{horas_trab:.1f} hrs`")
 
             with col_h2:
                 st.caption(" 🛣️ Odómetro (Kilómetros)")
                 km_init = st.number_input("Kilómetro Inicial", min_value=0.0, step=1.0)
                 km_fin = st.number_input("Kilómetro Final", min_value=0.0, step=1.0)
                 km_rec = max(0.0, km_fin - km_init)
-                st.info(f"**Kilómetros Recorridos:** `{km_rec:.1f} km`")
+                st.info(f"**Kilómetros Recorridos (Cálculo Visual):** `{km_rec:.1f} km`")
 
             st.divider()
             observaciones = st.text_area("Observaciones / Novedades del Turno")
@@ -248,16 +246,15 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 elif km_fin < km_init:
                     st.error("❌ El Kilómetro Final no puede ser menor al Kilómetro Inicial.")
                 else:
+                    # Se omiten 'horas_trabajadas' y 'kilometros_recorridos' para no chocar con las columnas generadas de Supabase
                     nuevo_parte = {
                         "fecha": str(fecha_parte),
                         "codigo_equipo": codigo_sel,
                         "turno": turno,
                         "horometro_inicial": horo_init,
                         "horometro_final": horo_fin,
-                        "horas_trabajadas": horas_trab,
                         "kilometro_inicial": km_init,
                         "kilometro_final": km_fin,
-                        "kilometros_recorridos": km_rec,
                         "frente_asignado": frente_asignado,
                         "actividad": actividad,
                         "combustible_galones": combustible,
