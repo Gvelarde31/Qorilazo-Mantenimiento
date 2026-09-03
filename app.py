@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configuración de la página
 st.set_page_config(
@@ -246,7 +246,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 elif km_fin < km_init:
                     st.error("❌ El Kilómetro Final no puede ser menor al Kilómetro Inicial.")
                 else:
-                    # Se omiten 'horas_trabajadas' y 'kilometros_recorridos' para no chocar con las columnas generadas de Supabase
                     nuevo_parte = {
                         "fecha": str(fecha_parte),
                         "codigo_equipo": codigo_sel,
@@ -274,3 +273,76 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.dataframe(pd.DataFrame(partes_registrados), use_container_width=True)
         else:
             st.info("Aún no se han registrado partes diarios en la base de datos.")
+
+# ==========================================
+# MÓDULO 3 Y 4: HISTORIAL Y REGISTRO DE MANTENIMIENTOS
+# ==========================================
+elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]:
+    st.header("🔧 Registro y Control de Mantenimientos de Equipos")
+    
+    equipos = consultar_tabla("equipos")
+    
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
+    else:
+        df_equipos = pd.DataFrame(equipos)
+        
+        if "codigo_interno" in df_equipos.columns:
+            lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
+        else:
+            col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
+            lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
+
+        st.subheader("📝 Registrar Nuevo Mantenimiento Ejecutado")
+        
+        with st.form("form_mantenimientos", clear_on_submit=True):
+            col_m1, col_m2, col_m3 = st.columns(3)
+            
+            with col_m1:
+                codigo_sel = st.selectbox("Código del Equipo *", lista_codigos)
+                tipo_maint = st.selectbox("Tipo de Mantenimiento *", ["Preventivo", "Correctivo", "Retorqueo", "Inspección Técnica"])
+                nivel_pm = st.selectbox("Nivel PM", ["PM1 (250h)", "PM2 (500h)", "PM3 (1000h)", "PM4 (2000h)", "N/A"])
+            with col_m2:
+                fecha_ejec = st.date_input("Fecha de Ejecución *", datetime.now().date())
+                horo_ejec = st.number_input("Horómetro de Ejecución", min_value=0.0, step=0.1)
+                km_ejec = st.number_input("Kilometraje de Ejecución", min_value=0.0, step=1.0)
+            with col_m3:
+                proveedor = st.text_input("Proveedor / Taller", value="Taller Principal")
+                prox_horo = st.number_input("Próximo Horómetro Proyectado", min_value=0.0, step=10.0)
+                prox_km = st.number_input("Próximo Kilometraje Proyectado", min_value=0.0, step=100.0)
+
+            descripcion = st.text_area("Descripción de Trabajos / Repuestos Cambiados")
+            foto_url = st.text_input("URL / Enlace de Evidencia Fotográfica (Opcional)")
+            
+            guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento en Supabase", use_container_width=True)
+            
+            if guardar_maint:
+                nuevo_mantenimiento = {
+                    "codigo_equipos": codigo_sel,
+                    "tipo_mantenimiento": tipo_maint,
+                    "fecha_ejecución": str(fecha_ejec),
+                    "horometro_ejecución": horo_ejec,
+                    "kilometraje_ejecución": km_ejec,
+                    "nivel_pm": nivel_pm,
+                    "proximo_horometro": prox_horo,
+                    "proximo_kilometraje": prox_km,
+                    "proveedor_taller": proveedor,
+                    "descripcion": descripcion,
+                    "foto_evidencia_url": foto_url
+                }
+                
+                exito, msg = insertar_registro("mantenimientos", nuevo_mantenimiento)
+                if exito:
+                    st.success(f"✅ Mantenimiento registrado correctamente para el equipo `{codigo_sel}`.")
+                else:
+                    st.error(f"❌ Error al guardar en Supabase: {msg}")
+
+        st.divider()
+        st.subheader("📊 Historial General de Mantenimientos Realizados")
+        
+        historial_maint = consultar_tabla("mantenimientos")
+        if historial_maint:
+            df_maint = pd.DataFrame(historial_maint)
+            st.dataframe(df_maint, use_container_width=True)
+        else:
+            st.info("Aún no hay intervenciones registradas en la tabla 'mantenimientos'.")
