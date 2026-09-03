@@ -327,9 +327,9 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
                 nuevo_mantenimiento = {
                     "codigo_equipo": codigo_sel,
                     "tipo_mantenimiento": tipo_maint,
-                    "fecha_ejecución": str(fecha_ejec),
-                    "horometro_ejecución": horo_ejec,
-                    "kilometraje_ejecución": km_ejec,
+                    "fecha_ejecucion": str(fecha_ejec),
+                    "horometro_ejecucion": horo_ejec,
+                    "kilometraje_ejecucion": km_ejec,
                     "nivel_pm": nivel_pm,
                     "proximo_horometro": prox_horo,
                     "proximo_kilometraje": prox_km,
