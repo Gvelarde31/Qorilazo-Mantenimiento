@@ -325,7 +325,7 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
             
             if guardar_maint:
                 nuevo_mantenimiento = {
-                    "codigo_equipos": codigo_sel,
+                    "codigo_equipo": codigo_sel,
                     "tipo_mantenimiento": tipo_maint,
                     "fecha_ejecución": str(fecha_ejec),
                     "horometro_ejecución": horo_ejec,
