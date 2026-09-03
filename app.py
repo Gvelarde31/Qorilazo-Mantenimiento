@@ -353,3 +353,75 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
             st.dataframe(df_maint, use_container_width=True)
         else:
             st.info("Aún no hay intervenciones registradas en la tabla 'mantenimientos'.")
+# ==========================================
+# MÓDULO 5: CATÁLOGO DE REPUESTOS Y DETALLES
+# ==========================================
+elif modulo == "5. Catálogo de Repuestos":
+    st.header("📦 Catálogo de Repuestos y Consumo por Mantenimiento")
+    
+    # Consulta a la tabla exacta 'repuestos_cat'
+    repuestos = consultar_tabla("repuestos_cat")
+    
+    if repuestos:
+        df_rep = pd.DataFrame(repuestos)
+        
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total Repuestos en Catálogo", len(df_rep))
+        k2.metric("Categorías Registradas", df_rep["categoria"].nunique() if "categoria" in df_rep.columns else 0)
+        k3.metric("Ubicación Principal", "Almacén Central Mina")
+        
+        st.divider()
+
+    st.subheader("➕ Registrar Nuevo Repuesto en Catálogo (repuestos_cat)")
+    
+    with st.form("form_repuestos_cat", clear_on_submit=True):
+        col_r1, col_r2, col_r3 = st.columns(3)
+        
+        with col_r1:
+            cod_repuesto = st.text_input("Código de Repuesto / SKU *")
+            descripcion_rep = st.text_input("Descripción del Repuesto / Parte *")
+            
+        with col_r2:
+            categoria = st.selectbox("Categoría *", ["Filtros", "Lubricantes / Fluidos", "Sistema Eléctrico", "Neumáticos", "Motor", "Frenos / Suspensión", "Otros"])
+            unidad = st.selectbox("Unidad de Medida *", ["Unidad", "Galón", "Juego / Kit", "Litro", "Metro", "Caja"])
+            
+        with col_r3:
+            precio_ref = st.number_input("Precio Referencial (USD / PEN)", min_value=0.0, step=1.0)
+
+        guardar_rep = st.form_submit_button("💾 Guardar Repuesto en Catálogo", use_container_width=True)
+        
+        if guardar_rep:
+            if not cod_repuesto.strip() or not descripcion_rep.strip():
+                st.error("❌ Debes ingresar el Código y la Descripción del repuesto.")
+            else:
+                nuevo_repuesto = {
+                    "codigo_repuesto": cod_repuesto.strip(),
+                    "descripcion": descripcion_rep.strip(),
+                    "categoria": categoria,
+                    "unidad_medida": unidad,
+                    "precio_referencial": precio_ref
+                }
+                
+                exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
+                if exito:
+                    st.success(f"✅ Repuesto `{cod_repuesto}` guardado con éxito en `repuestos_cat`.")
+                else:
+                    st.error(f"❌ Error al guardar en Supabase: {msg}")
+
+    st.divider()
+    
+    # Pestañas para visualizar Catálogo y Consumos de Repuestos
+    tab1, tab2 = st.tabs(["📋 Catálogo Maestro (repuestos_cat)", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
+    
+    with tab1:
+        if repuestos:
+            st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
+        else:
+            st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
+            
+    with tab2:
+        detalles = consultar_tabla("mantenimiento_detalles")
+        if detalles:
+            st.dataframe(pd.DataFrame(detalles), use_container_width=True)
+        else:
+            st.info("Aún no se han asignado repuestos a los mantenimientos en 'mantenimiento_detalles'.")
