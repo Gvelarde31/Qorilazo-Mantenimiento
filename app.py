@@ -298,10 +298,18 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
         with st.form("form_mantenimientos", clear_on_submit=True):
             col_m1, col_m2, col_m3 = st.columns(3)
             
-            with col_m1:
+         with col_m1:
                 codigo_sel = st.selectbox("Código del Equipo *", lista_codigos)
                 tipo_maint = st.selectbox("Tipo de Mantenimiento *", ["Preventivo", "Correctivo", "Retorqueo", "Inspección Técnica"])
-                nivel_pm = st.selectbox("Nivel PM", ["PM1 (250h)", "PM2 (500h)", "PM3 (1000h)", "PM4 (2000h)", "N/A"])
+                # Opciones alineadas exactamente con la restricción CHECK de Supabase:
+                nivel_pm = st.selectbox("Nivel PM *", [
+                    "PM1 (250h)", 
+                    "PM2 (500h)", 
+                    "PM3 (1000h)", 
+                    "PM4 (2000h)", 
+                    "Correctivo / Reparación", 
+                    "Otro"
+                ])
             with col_m2:
                 fecha_ejec = st.date_input("Fecha de Ejecución *", datetime.now().date())
                 horo_ejec = st.number_input("Horómetro de Ejecución", min_value=0.0, step=0.1)
