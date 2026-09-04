@@ -761,7 +761,7 @@ elif modulo == "8. Disponibilidad Mecánica":
 # ==========================================
 elif modulo == "9. Reporte Exportable & Evidencias A4":
     st.header("📄 Reporte Exportable de Mantenimientos & Dossier de Evidencias A4")
-    st.caption("Consolidado con asignación manual de OT y estado, listo para exportación a Excel y vista previa de impresión A4.")
+    st.caption("Consolidado con asignación manual de OT y estado, listo para exportación y vista previa A4.")
 
     mantenimientos = consultar_tabla("mantenimientos")
     equipos = consultar_tabla("equipos")
@@ -772,7 +772,6 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
         df_maint = pd.DataFrame(mantenimientos)
         df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
 
-        # Cruzar para traer la 'placa' del equipo
         if not df_eq.empty and "codigo_interno" in df_eq.columns and "placa" in df_eq.columns:
             df_reporte = df_maint.merge(
                 df_eq[["codigo_interno", "placa"]],
@@ -784,7 +783,6 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
             df_reporte = df_maint.copy()
             df_reporte["placa"] = "S/P"
 
-        # Asegurar columnas requeridas
         df_reporte["placa"] = df_reporte["placa"].fillna("S/P")
         df_reporte["codigo_interno"] = df_reporte["codigo_equipo"]
         df_reporte["OT"] = df_reporte.get("OT", "OT-PENDIENTE")
@@ -810,22 +808,15 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 
         st.divider()
 
-        # Botón para descargar reporte Excel con dos hojas
-        buffer_excel = io.BytesIO()
-        with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
-            # Hoja 1: Resumen Mantenimientos
-            cols_h1 = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado"] if c in df_editado.columns]
-            df_editado[cols_h1].to_excel(writer, sheet_name="Mantenimientos_OT", index=False)
-
-            # Hoja 2: Mapeo de Evidencias Fotográficas
-            cols_h2 = [c for c in ["OT", "codigo_interno", "nivel_pm", "foto_evidencia_url"] if c in df_editado.columns]
-            df_editado[cols_h2].to_excel(writer, sheet_name="Evidencias_Fotograficas", index=False)
+        # Exportación rápida a CSV compatible con Excel
+        cols_csv = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"] if c in df_editado.columns]
+        csv_data = df_editado[cols_csv].to_csv(index=False).encode('utf-8-sig')
 
         st.download_button(
-            label="📥 Descargar Reporte Completo en Excel (.xlsx)",
-            data=buffer_excel.getvalue(),
-            file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            label="📥 Descargar Reporte Consolidado (CSV / Excel)",
+            data=csv_data,
+            file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
             use_container_width=True
         )
 
@@ -838,7 +829,6 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
         if df_fotos.empty:
             st.info("No se han adjuntado URLs de fotografía en las intervenciones registradas.")
         else:
-            # Renderizado en grilla de 2 fotos por línea
             registros_fotos = df_fotos.to_dict(orient="records")
             for i in range(0, len(registros_fotos), 2):
                 col_f1, col_f2 = st.columns(2)
