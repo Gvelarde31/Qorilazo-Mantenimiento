@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
+import io
 
 # Configuración de la página
 st.set_page_config(
@@ -96,7 +97,8 @@ modulo = st.sidebar.radio(
         "5. Registro de Detalles y Consumo de Repuestos",
         "6. Catálogo de Repuestos",
         "7. KPIs y Ratio de Combustible",
-        "8. Disponibilidad Mecánica"
+        "8. Disponibilidad Mecánica",
+        "9. Reporte Exportable & Evidencias A4"
     ]
 )
 
@@ -711,7 +713,6 @@ elif modulo == "8. Disponibilidad Mecánica":
             dias_inop = 7 - dias_op
             porcentaje_disp = round((dias_op / 7.0) * 100, 1)
 
-            # Clasificación binaria ajustada estrictamente a la meta del 90%
             if porcentaje_disp >= 90.0:
                 estado_disp = "🟢 DENTRO DE CONTRATO (≥90%)"
             else:
@@ -737,7 +738,6 @@ elif modulo == "8. Disponibilidad Mecánica":
         else:
             df_disp_fil = df_disp
 
-        # Métricas ajustadas a los 2 parámetros del contrato
         st.subheader(f"📊 Resumen SLA y Cumplimiento Contractual ({frente_sel})")
         m1, m2, k_prom = st.columns(3)
         prom_disp = df_disp_fil["Disponibilidad (%)"].mean() if not df_disp_fil.empty else 0.0
@@ -755,3 +755,101 @@ elif modulo == "8. Disponibilidad Mecánica":
         st.subheader(f"📈 Gráfico de Disponibilidad Mecánica (%) por Equipo - {frente_sel}")
         if not df_disp_fil.empty:
             st.bar_chart(data=df_disp_fil.set_index("Código Equipo")["Disponibilidad (%)"])
+
+# ==========================================
+# MÓDULO 9: REPORTE EXPORTABLE DE MANTENIMIENTOS & EVIDENCIAS A4
+# ==========================================
+elif modulo == "9. Reporte Exportable & Evidencias A4":
+    st.header("📄 Reporte Exportable de Mantenimientos & Dossier de Evidencias A4")
+    st.caption("Consolidado con asignación manual de OT y estado, listo para exportación a Excel y vista previa de impresión A4.")
+
+    mantenimientos = consultar_tabla("mantenimientos")
+    equipos = consultar_tabla("equipos")
+
+    if not mantenimientos:
+        st.info("No hay intervenciones en 'mantenimientos' para generar el reporte.")
+    else:
+        df_maint = pd.DataFrame(mantenimientos)
+        df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+
+        # Cruzar para traer la 'placa' del equipo
+        if not df_eq.empty and "codigo_interno" in df_eq.columns and "placa" in df_eq.columns:
+            df_reporte = df_maint.merge(
+                df_eq[["codigo_interno", "placa"]],
+                left_on="codigo_equipo",
+                right_on="codigo_interno",
+                how="left"
+            )
+        else:
+            df_reporte = df_maint.copy()
+            df_reporte["placa"] = "S/P"
+
+        # Asegurar columnas requeridas
+        df_reporte["placa"] = df_reporte["placa"].fillna("S/P")
+        df_reporte["codigo_interno"] = df_reporte["codigo_equipo"]
+        df_reporte["OT"] = df_reporte.get("OT", "OT-PENDIENTE")
+        df_reporte["nivel_pm"] = df_reporte.get("nivel_pm", "PM General")
+        df_reporte["creado_el"] = df_reporte.get("created_at", df_reporte.get("fecha_ejecucion", ""))
+        df_reporte["estado"] = df_reporte.get("estado", "COMPLETADO")
+
+        st.subheader("✏️ Edición Manual de OT y Estado antes de Exportar")
+        cols_editor = ["id", "placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"]
+        cols_existentes = [c for c in cols_editor if c in df_reporte.columns]
+
+        df_editado = st.data_editor(
+            df_reporte[cols_existentes],
+            column_config={
+                "OT": st.column_config.TextColumn("OT (Orden de Trabajo) *", help="Escriba manualmente la OT"),
+                "estado": st.column_config.SelectboxColumn("Estado *", options=["PROGRAMADO", "EN PROCESO", "COMPLETADO", "CANCELADO"]),
+                "foto_evidencia_url": st.column_config.LinkColumn("Evidencia Fotográfica")
+            },
+            disabled=["id", "placa", "codigo_interno", "nivel_pm", "creado_el"],
+            use_container_width=True,
+            num_rows="fixed"
+        )
+
+        st.divider()
+
+        # Botón para descargar reporte Excel con dos hojas
+        buffer_excel = io.BytesIO()
+        with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
+            # Hoja 1: Resumen Mantenimientos
+            cols_h1 = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado"] if c in df_editado.columns]
+            df_editado[cols_h1].to_excel(writer, sheet_name="Mantenimientos_OT", index=False)
+
+            # Hoja 2: Mapeo de Evidencias Fotográficas
+            cols_h2 = [c for c in ["OT", "codigo_interno", "nivel_pm", "foto_evidencia_url"] if c in df_editado.columns]
+            df_editado[cols_h2].to_excel(writer, sheet_name="Evidencias_Fotograficas", index=False)
+
+        st.download_button(
+            label="📥 Descargar Reporte Completo en Excel (.xlsx)",
+            data=buffer_excel.getvalue(),
+            file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+        st.divider()
+        st.subheader("🖼️ Vista Previa Formato A4 - Dossier de Evidencias (2 Fotos por Línea)")
+        st.caption("Formato optimizado para impresión A4 o generación PDF desde el navegador.")
+
+        df_fotos = df_editado[df_editado["foto_evidencia_url"].notna() & (df_editado["foto_evidencia_url"].str.strip() != "")]
+
+        if df_fotos.empty:
+            st.info("No se han adjuntado URLs de fotografía en las intervenciones registradas.")
+        else:
+            # Renderizado en grilla de 2 fotos por línea
+            registros_fotos = df_fotos.to_dict(orient="records")
+            for i in range(0, len(registros_fotos), 2):
+                col_f1, col_f2 = st.columns(2)
+                
+                with col_f1:
+                    item1 = registros_fotos[i]
+                    st.image(item1["foto_evidencia_url"], caption=f"OT: {item1['OT']} | Equipo: {item1['codigo_interno']} ({item1['placa']}) | {item1['nivel_pm']}", use_container_width=True)
+                
+                if i + 1 < len(registros_fotos):
+                    with col_f2:
+                        item2 = registros_fotos[i+1]
+                        st.image(item2["foto_evidencia_url"], caption=f"OT: {item2['OT']} | Equipo: {item2['codigo_interno']} ({item2['placa']}) | {item2['nivel_pm']}", use_container_width=True)
+                
+                st.write("---")
