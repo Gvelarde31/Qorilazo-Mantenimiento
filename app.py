@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configuración de la página
 st.set_page_config(
@@ -143,7 +143,7 @@ if modulo == "1. Lista Maestra & Acreditación":
         st.divider()
         st.subheader("🔍 Filtro de Flota por Permiso")
         doc_seleccionado = st.selectbox(
-            "Selecciona un Permiso para inspeccionar el semáforo detallado de la flota:",
+            "Selecciona un Permiso para inspeccionar:",
             options=["TODOS"] + [nombres_amigables.get(c, c) for c in cols_monitoreadas if c in df.columns]
         )
         columnas_base = [col for col in ["placa", "codigo_interno", "marca", "modelo", "comentario", "fotocheck"] if col in df.columns]
@@ -244,80 +244,98 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
 # ==========================================
-# MÓDULO 3: PROGRAMACIÓN SEMANAL PM (USANDO TABLA 'mantenimientos')
+# MÓDULO 3: PROGRAMACIÓN SEMANAL PM (CALCULADO AUTOMÁTICAMENTE SEGÚN UNIDAD DE MEDIDA)
 # ==========================================
 elif modulo == "3. Programación Semanal PM":
-    st.header("📅 Programación y Proyección Semanal de Mantenimiento Preventivo (PM)")
-    st.caption("Gestionado directamente desde los mantenimientos ejecutados y sus próximas proyecciones.")
+    st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
     
-    equipos = consultar_tabla("equipos")
-    mantenimientos = consultar_tabla("mantenimientos")
-    partes = consultar_tabla("partes_diarios")
+    hoy = datetime.now().date()
+    # Calcular el Domingo de inicio de la semana actual
+    dias_desde_domingo = (hoy.weekday() + 1) % 7
+    inicio_semana = hoy - timedelta(days=dias_desde_domingo)
+    fin_semana = inicio_semana + timedelta(days=6)
     
-    if not equipos:
-        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
-    else:
-        df_equipos = pd.DataFrame(equipos)
-        lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
+    st.info(f"📆 **Semana Operativa Actual:** Desde **Domingo {inicio_semana.strftime('%d/%m/%Y')}** hasta **Sábado {fin_semana.strftime('%d/%m/%Y')}**")
 
-        st.subheader("🗓️ Agendar Proyección de Mantenimiento Preventivo")
-        
-        with st.form("form_programacion_mantenimiento", clear_on_submit=True):
-            col_p1, col_p2, col_p3 = st.columns(3)
+    equipos = consultar_tabla("equipos")
+    partes = consultar_tabla("partes_diarios")
+    mantenimientos = consultar_tabla("mantenimientos")
+
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'.")
+    else:
+        df_eq = pd.DataFrame(equipos)
+        df_partes = pd.DataFrame(partes) if partes else pd.DataFrame()
+        df_maint = pd.DataFrame(mantenimientos) if mantenimientos else pd.DataFrame()
+
+        programacion_semanal = []
+
+        for _, eq in df_eq.iterrows():
+            cod = eq.get("codigo_interno") or eq.get("codigo_equipo")
+            freq = float(eq.get("frecuencia_mantenimientos") or 250)
             
-            with col_p1:
-                codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
-                nivel_pm = st.selectbox("Nivel de PM Programado *", [
-                    "PM1 (250h)", 
-                    "PM2 (500h)", 
-                    "PM3 (1000h)", 
-                    "PM4 (2000h)", 
-                    "Correctivo / Reparación", 
-                    "Otro"
-                ])
-            with col_p2:
-                fecha_ejec = st.date_input("Fecha Programada / Estimada *", datetime.now().date())
-                prox_horo = st.number_input("Horómetro Proyectado de Servicio", min_value=0.0, step=10.0)
-            with col_p3:
-                proveedor = st.text_input("Taller / Proveedor Responsable", value="Taller Principal")
-                prox_km = st.number_input("Kilometraje Proyectado de Servicio", min_value=0.0, step=100.0)
-                
-            descripcion_prog = st.text_area("Trabajos / Repuestos Requeridos para la Programación")
+            # Determinar tipo de medición (Horas o Kilómetros)
+            um_raw = str(eq.get("unidad_medida", "")).strip().lower()
+            es_km = "km" in um_raw or "kilomet" in um_raw
+            tipo_unidad = "km" if es_km else "hrs"
             
-            guardar_prog = st.form_submit_button("💾 Guardar Programación en Mantenimientos", use_container_width=True)
-            
-            if guardar_prog:
-                nuevo_mantenimiento_prog = {
-                    "codigo_equipo": codigo_sel,
-                    "tipo_mantenimiento": "Preventivo",
-                    "fecha_ejecucion": str(fecha_ejec),
-                    "horometro_ejecucion": 0.0,
-                    "kilometraje_ejecucion": 0.0,
-                    "nivel_pm": nivel_pm,
-                    "proximo_horometro": prox_horo,
-                    "proximo_kilometraje": prox_km,
-                    "proveedor_taller": proveedor,
-                    "descripcion": f"[PROGRAMADO] {descripcion_prog}"
-                }
-                
-                exito, msg = insertar_registro("mantenimientos", nuevo_mantenimiento_prog)
-                if exito:
-                    st.success(f"✅ Programación para el equipo `{codigo_sel}` guardada con éxito en 'mantenimientos'.")
-                    st.rerun()
-                else:
-                    st.error(f"❌ Error al guardar en Supabase: {msg}")
+            # Obtener última lectura del parte diario según tipo de medición
+            lectura_actual = 0.0
+            if not df_partes.empty and "codigo_equipo" in df_partes.columns:
+                partes_eq = df_partes[df_partes["codigo_equipo"] == cod]
+                if not partes_eq.empty:
+                    col_lectura = "kilometro_final" if es_km else "horometro_final"
+                    if col_lectura in partes_eq.columns:
+                        lectura_actual = float(partes_eq[col_lectura].max() or 0.0)
+
+            # Obtener última lectura de PM en 'mantenimientos'
+            ultimo_pm_lectura = 0.0
+            if not df_maint.empty and "codigo_equipo" in df_maint.columns:
+                maint_eq = df_maint[df_maint["codigo_equipo"] == cod]
+                if not maint_eq.empty:
+                    col_maint = "kilometraje_ejecucion" if es_km else "horometro_ejecucion"
+                    if col_maint in maint_eq.columns:
+                        ultimo_pm_lectura = float(maint_eq[col_maint].max() or 0.0)
+
+            prox_pm_lectura = ultimo_pm_lectura + freq
+            recorrido_restante = prox_pm_lectura - lectura_actual
+
+            # Evaluar prioridad y estado
+            if recorrido_restante <= 0:
+                estado_prog = "🔴 MANTENIMIENTO VENCIDO / URGENTE"
+                prioridad = "ALTA"
+            elif recorrido_restante <= (500 if es_km else 50):
+                estado_prog = "🟡 CORRESPONDE ESTA SEMANA"
+                prioridad = "MEDIA"
+            else:
+                estado_prog = "🟢 VIGENTE"
+                prioridad = "BAJA"
+
+            programacion_semanal.append({
+                "Código Equipo": cod,
+                "Medición": tipo_unidad.upper(),
+                "Frecuencia": f"{freq:.0f} {tipo_unidad}",
+                "Último PM Exec.": f"{ultimo_pm_lectura:.1f} {tipo_unidad}",
+                "Lectura Actual": f"{lectura_actual:.1f} {tipo_unidad}",
+                "Próximo PM": f"{prox_pm_lectura:.1f} {tipo_unidad}",
+                "Restante para PM": f"{recorrido_restante:.1f} {tipo_unidad}",
+                "Estado esta Semana": estado_prog,
+                "Prioridad": prioridad
+            })
+
+        df_prog = pd.DataFrame(programacion_semanal)
+
+        st.subheader("📋 Equipos Programados para Mantenimiento esta Semana")
+        equipos_semana = df_prog[df_prog["Estado esta Semana"].str.contains("CORRESPONDE|VENCIDO")]
+
+        if not equipos_semana.empty:
+            st.dataframe(equipos_semana, use_container_width=True)
+        else:
+            st.success("✅ ¡Ningún equipo requiere mantenimiento programado para esta semana!")
 
         st.divider()
-        st.subheader("📊 Mantenimientos Proyectados y Pendientes")
-        
-        if mantenimientos:
-            df_maint = pd.DataFrame(mantenimientos)
-            
-            # Filtrar mantenimientos preventivos o programados
-            cols_visibles = [c for c in ["id", "codigo_equipo", "nivel_pm", "fecha_ejecucion", "proximo_horometro", "proximo_kilometraje", "proveedor_taller", "descripcion"] if c in df_maint.columns]
-            st.dataframe(df_maint[cols_visibles], use_container_width=True)
-        else:
-            st.info("Aún no hay mantenimientos ni proyecciones registradas en la tabla 'mantenimientos'.")
+        st.subheader("🔍 Proyección Completa de la Flota (Horómetros vs. Kilometrajes)")
+        st.dataframe(df_prog, use_container_width=True)
 
 # ==========================================
 # MÓDULO 4: HISTORIAL DE MANTENIMIENTOS & CONSUMO INTEGRADO
@@ -329,7 +347,7 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
     repuestos_cat = consultar_tabla("repuestos_cat")
     
     if not equipos:
-        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
+        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
         lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
@@ -468,16 +486,21 @@ elif modulo == "5. Catálogo de Repuestos":
             cod_repuesto = st.text_input("Código de Repuesto / SKU (Opcional)")
             descripcion_rep = st.text_input("Descripción del Repuesto / Parte *")
         with col_r2:
-            categoria = st.selectbox("Categoría *", [
+            categoria_sel = st.selectbox("Categoría de Lista", [
+                "Neumáticos", 
                 "Filtros", 
                 "Lubricantes", 
                 "Eléctrico", 
-                "Neumáticos", 
                 "Motor", 
                 "Frenos", 
-                "Mangueras / Hidráulica",
-                "General"
+                "General",
+                "Otro / Manual"
             ])
+            if categoria_sel == "Otro / Manual":
+                categoria = st.text_input("Especificar Categoría Manual *")
+            else:
+                categoria = categoria_sel
+                
             unidad = st.selectbox("Unidad de Medida *", ["Unidad", "Galón", "Juego", "Litro", "Metro", "Caja"])
         with col_r3:
             precio_ref = st.number_input("Precio Referencial (USD / PEN)", min_value=0.0, step=1.0)
@@ -485,20 +508,22 @@ elif modulo == "5. Catálogo de Repuestos":
         guardar_rep = st.form_submit_button("💾 Guardar Repuesto en Catálogo", use_container_width=True)
         
         if guardar_rep:
-            # Se envía directamente a Supabase sin bloquear por el código
-            nuevo_repuesto = {
-                "codigo_repuesto": cod_repuesto.strip() if cod_repuesto else None,
-                "descripcion": descripcion_rep.strip(),
-                "categoria": categoria,
-                "unidad_medida": unidad,
-                "precio_referencial": precio_ref
-            }
-            exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
-            if exito:
-                st.success("✅ Repuesto guardado con éxito en `repuestos_cat`.")
-                st.rerun()
+            if not descripcion_rep.strip():
+                st.error("❌ La descripción del repuesto es obligatoria.")
             else:
-                st.error(f"❌ Error al guardar en Supabase: {msg}")
+                nuevo_repuesto = {
+                    "codigo_repuesto": cod_repuesto.strip() if cod_repuesto else None,
+                    "descripcion": descripcion_rep.strip(),
+                    "categoria": categoria.strip() if isinstance(categoria, str) else categoria,
+                    "unidad_medida": unidad,
+                    "precio_referencial": precio_ref
+                }
+                exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
+                if exito:
+                    st.success("✅ Repuesto guardado con éxito en `repuestos_cat`.")
+                    st.rerun()
+                else:
+                    st.error(f"❌ Error al guardar en Supabase: {msg}")
 
     st.divider()
     st.subheader("📋 Catálogo Maestro de Repuestos")
