@@ -435,27 +435,26 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     if isinstance(res_data, list) and len(res_data) > 0:
                         maint_id = res_data[0].get("id")
                     
-                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}`.")
+                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID `{maint_id}`).")
                     
-                    # Se ejecuta la inserción independientemente de la selección
                     if maint_id:
                         rep_id = dict_repuestos[repuesto_sel].get("id") if repuesto_sel in dict_repuestos else None
                         
                         nuevo_detalle = {
                             "mantenimiento_id": maint_id,
-                            "respuestos_id": rep_id,  # Mantiene el nombre de columna de tu tabla en Supabase
+                            "repuesto_id": rep_id,  # <--- CORREGIDO: coincide con tu tabla
                             "cantidad": cant_usada,
                             "precio_unitario": costo_mo,
                             "costo_subtotal": subtotal_calc
                         }
-                        exito_det, msg_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
+                        exito_det, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
                         if exito_det:
-                            st.success(f"✅ Detalle guardado en `mantenimiento_detalles` (Mantenimiento ID `{maint_id}`).")
+                            st.success(f"✅ Detalle insertado correctamente en `mantenimiento_detalles`.")
                         else:
-                            st.error(f"⚠️ Mantenimiento guardado, pero falló el detalle: {msg_det}")
+                            st.error(f"❌ Error al insertar detalle: {res_det}")
                     st.rerun()
                 else:
-                    st.error(f"❌ Error al guardar en Supabase: {res_data}")
+                    st.error(f"❌ Error al guardar cabecera en Supabase: {res_data}")
 
         st.divider()
         
