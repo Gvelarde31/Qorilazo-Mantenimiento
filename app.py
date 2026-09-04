@@ -405,13 +405,12 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
             with col_r1:
                 repuesto_sel = st.selectbox("Repuesto Utilizado (Opcional)", opciones_repuestos)
             with col_r2:
-                cant_usada = st.number_input("Cantidad Utilizada", min_value=0, step=1, value=0)
+                cant_usada = st.number_input("Cantidad Utilizada", min_value=1, step=1, value=1)
             with col_r3:
-                costo_mo = st.number_input("Costo de Mano de Obra (M.O.)", min_value=0.0, step=1.0, value=0.0)
+                costo_mo = st.number_input("Costo de Mano de Obra / P.U. (M.O.)", min_value=0.0, step=1.0, value=0.0)
 
             subtotal_calc = cant_usada * costo_mo
-            if cant_usada > 0 or costo_mo > 0:
-                st.info(f"**Costo Subtotal (Cantidad × M.O.):** `{subtotal_calc:.2f}`")
+            st.info(f"**Costo Subtotal (Cantidad × M.O.):** `{subtotal_calc:.2f}`")
 
             guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento & Consumo en Supabase", use_container_width=True)
             
@@ -438,18 +437,20 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     
                     st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}`.")
                     
-                    if (repuesto_sel != "Sin repuesto adicional" or costo_mo > 0) and maint_id:
+                    # Se ejecuta la inserción independientemente de la selección
+                    if maint_id:
                         rep_id = dict_repuestos[repuesto_sel].get("id") if repuesto_sel in dict_repuestos else None
+                        
                         nuevo_detalle = {
                             "mantenimiento_id": maint_id,
-                            "respuestos_id": rep_id,
+                            "respuestos_id": rep_id,  # Mantiene el nombre de columna de tu tabla en Supabase
                             "cantidad": cant_usada,
                             "precio_unitario": costo_mo,
                             "costo_subtotal": subtotal_calc
                         }
                         exito_det, msg_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
                         if exito_det:
-                            st.success(f"✅ Detalle de M.O. / repuestos asociado al Mantenimiento ID `{maint_id}`.")
+                            st.success(f"✅ Detalle guardado en `mantenimiento_detalles` (Mantenimiento ID `{maint_id}`).")
                         else:
                             st.error(f"⚠️ Mantenimiento guardado, pero falló el detalle: {msg_det}")
                     st.rerun()
@@ -473,7 +474,7 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                 st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
             else:
                 st.info("Aún no se han registrado repuestos en 'mantenimiento_detalles'.")
-
+                
 # ==========================================
 # MÓDULO 5: CATÁLOGO DE REPUESTOS
 # ==========================================
