@@ -87,7 +87,8 @@ modulo = st.sidebar.radio(
         "3. Programación Semanal PM",
         "4. Historial de Mantenimientos",
         "5. Registro de Detalles y Consumo de Repuestos",
-        "6. Catálogo de Repuestos"
+        "6. Catálogo de Repuestos",
+        "7. KPIs y Ratio de Combustible"
     ]
 )
 
@@ -204,6 +205,11 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 km_rec = max(0.0, km_fin - km_init)
                 st.info(f"**Kilómetros Recorridos (Cálculo Visual):** `{km_rec:.1f} km`")
 
+            # Cálculo de Ratio Estimado del Turno
+            if horas_trab > 0 and combustible > 0:
+                ratio_turno = combustible / horas_trab
+                st.caption(f"⛽ Ratio Estimado del Turno: **{ratio_turno:.2f} Gal/hrs**")
+
             st.divider()
             observaciones = st.text_area("Observaciones / Novedades del Turno")
             
@@ -240,7 +246,12 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         st.subheader("📊 Historial de Partes Diarios Registrados")
         partes_registrados = consultar_tabla("partes_diarios")
         if partes_registrados:
-            st.dataframe(pd.DataFrame(partes_registrados), use_container_width=True)
+            df_partes_show = pd.DataFrame(partes_registrados)
+            # Calcular ratio en la vista
+            if "combustible_galones" in df_partes_show.columns and "horometro_final" in df_partes_show.columns and "horometro_inicial" in df_partes_show.columns:
+                hrs = (df_partes_show["horometro_final"] - df_partes_show["horometro_inicial"]).clip(lower=0)
+                df_partes_show["Ratio (Gal/hr)"] = (df_partes_show["combustible_galones"] / hrs.replace(0, pd.NA)).round(2)
+            st.dataframe(df_partes_show, use_container_width=True)
         else:
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
@@ -251,7 +262,6 @@ elif modulo == "3. Programación Semanal PM":
     st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
     
     hoy = datetime.now().date()
-    # Calcular el Domingo de inicio de la semana actual
     dias_desde_domingo = (hoy.weekday() + 1) % 7
     inicio_semana = hoy - timedelta(days=dias_desde_domingo)
     fin_semana = inicio_semana + timedelta(days=6)
@@ -275,12 +285,10 @@ elif modulo == "3. Programación Semanal PM":
             cod = eq.get("codigo_interno") or eq.get("codigo_equipo")
             freq = float(eq.get("frecuencia_mantenimientos") or 250)
             
-            # Determinar tipo de medición (Horas o Kilómetros)
             um_raw = str(eq.get("unidad_medida", "")).strip().lower()
             es_km = "km" in um_raw or "kilomet" in um_raw
             tipo_unidad = "km" if es_km else "hrs"
             
-            # Obtener última lectura del parte diario según tipo de medición
             lectura_actual = 0.0
             if not df_partes.empty and "codigo_equipo" in df_partes.columns:
                 partes_eq = df_partes[df_partes["codigo_equipo"] == cod]
@@ -289,7 +297,6 @@ elif modulo == "3. Programación Semanal PM":
                     if col_lectura in partes_eq.columns:
                         lectura_actual = float(partes_eq[col_lectura].max() or 0.0)
 
-            # Obtener última lectura de PM en 'mantenimientos'
             ultimo_pm_lectura = 0.0
             if not df_maint.empty and "codigo_equipo" in df_maint.columns:
                 maint_eq = df_maint[df_maint["codigo_equipo"] == cod]
@@ -301,7 +308,6 @@ elif modulo == "3. Programación Semanal PM":
             prox_pm_lectura = ultimo_pm_lectura + freq
             recorrido_restante = prox_pm_lectura - lectura_actual
 
-            # Evaluar prioridad y estado
             if recorrido_restante <= 0:
                 estado_prog = "🔴 MANTENIMIENTO VENCIDO / URGENTE"
                 prioridad = "ALTA"
@@ -417,7 +423,7 @@ elif modulo == "4. Historial de Mantenimientos":
             st.info("Aún no hay intervenciones registradas en 'mantenimientos'.")
 
 # ==========================================
-# MÓDULO 5: REGISTRO DE DETALLES Y CONSUMO DE REPUESTOS (DEDICADO)
+# MÓDULO 5: REGISTRO DE DETALLES Y CONSUMO DE REPUESTOS
 # ==========================================
 elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
     st.header("🛠️ Registro de Detalles y Consumo de Repuestos (`mantenimiento_detalles`)")
@@ -431,13 +437,11 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
         df_maint = pd.DataFrame(mantenimientos)
         df_rep = pd.DataFrame(repuestos_cat) if repuestos_cat else pd.DataFrame()
 
-        # Opciones para selector de Mantenimiento
         opciones_maint = [
             f"ID: {r.get('id')} | Equipo: {r.get('codigo_equipo')} | Fecha: {r.get('fecha_ejecucion')} | {r.get('tipo_mantenimiento')}"
             for _, r in df_maint.iterrows()
         ]
         
-        # Opciones para selector de Repuesto desde 'repuestos_cat'
         opciones_rep = ["Sin repuesto / Solo Mano de Obra"]
         dict_rep = {}
         if not df_rep.empty:
@@ -465,17 +469,14 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
             guardar_detalle = st.form_submit_button("💾 Guardar Detalle en Supabase", use_container_width=True)
             
             if guardar_detalle:
-                # Extraer el ID real del Mantenimiento desde el label seleccionado
                 maint_id = int(maint_sel.split(" | ")[0].replace("ID: ", "").strip())
                 
-                # Omitimos 'costo_subtotal' porque la columna se autocalcula en la base de datos
                 nuevo_detalle = {
                     "mantenimiento_id": maint_id,
                     "cantidad": cant_usada,
                     "precio_unitario": costo_mo
                 }
                 
-                # Asignar repuesto_id si seleccionó un repuesto del catálogo
                 if rep_sel != "Sin repuesto / Solo Mano de Obra" and rep_sel in dict_rep:
                     nuevo_detalle["repuesto_id"] = dict_rep[rep_sel].get("id")
 
@@ -493,6 +494,7 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
             st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
         else:
             st.info("Aún no se han registrado detalles en 'mantenimiento_detalles'.")
+
 # ==========================================
 # MÓDULO 6: CATÁLOGO DE REPUESTOS
 # ==========================================
@@ -560,3 +562,73 @@ elif modulo == "6. Catálogo de Repuestos":
         st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
     else:
         st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
+
+# ==========================================
+# MÓDULO 7: KPIS Y RATIO DE COMBUSTIBLE
+# ==========================================
+elif modulo == "7. KPIs y Ratio de Combustible":
+    st.header("⛽ Reporte y Análisis de Ratios de Combustible")
+    st.caption("Consolidado acumulado de combustible abastecido versus horas / kilómetros trabajados.")
+
+    equipos = consultar_tabla("equipos")
+    partes = consultar_tabla("partes_diarios")
+
+    if not partes:
+        st.info("Aún no hay suficientes registros en 'partes_diarios' para calcular los ratios de combustible.")
+    else:
+        df_p = pd.DataFrame(partes)
+        df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+
+        # Asegurar tipos numéricos
+        df_p["combustible_galones"] = pd.to_numeric(df_p["combustible_galones"], errors="coerce").fillna(0)
+        df_p["horometro_final"] = pd.to_numeric(df_p["horometro_final"], errors="coerce").fillna(0)
+        df_p["horometro_inicial"] = pd.to_numeric(df_p["horometro_inicial"], errors="coerce").fillna(0)
+        df_p["kilometro_final"] = pd.to_numeric(df_p["kilometro_final"], errors="coerce").fillna(0)
+        df_p["kilometro_inicial"] = pd.to_numeric(df_p["kilometro_inicial"], errors="coerce").fillna(0)
+
+        df_p["horas_trabajadas"] = (df_p["horometro_final"] - df_p["horometro_inicial"]).clip(lower=0)
+        df_p["km_recorridos"] = (df_p["kilometro_final"] - df_p["kilometro_inicial"]).clip(lower=0)
+
+        # Agrupar datos por equipo
+        resumen_combustible = []
+
+        for cod_eq, grp in df_p.groupby("codigo_equipo"):
+            total_gal = grp["combustible_galones"].sum()
+            total_hrs = grp["horas_trabajadas"].sum()
+            total_km = grp["km_recorridos"].sum()
+
+            # Obtener unidad de medida de la tabla equipos
+            um = "Horas"
+            if not df_eq.empty and "codigo_interno" in df_eq.columns and "unidad_medida" in df_eq.columns:
+                eq_match = df_eq[df_eq["codigo_interno"] == cod_eq]
+                if not eq_match.empty:
+                    um = eq_match["unidad_medida"].values[0]
+
+            ratio_hrs = (total_gal / total_hrs) if total_hrs > 0 else 0.0
+            ratio_km = (total_gal / total_km) if total_km > 0 else 0.0
+
+            resumen_combustible.append({
+                "Código Equipo": cod_eq,
+                "Medición": um,
+                "Total Galones Abastecidos": round(total_gal, 1),
+                "Total Horas Operadas": round(total_hrs, 1),
+                "Total KM Recorridos": round(total_km, 1),
+                "Ratio (Gal / Horas)": round(ratio_hrs, 2),
+                "Ratio (Gal / KM)": round(ratio_km, 2)
+            })
+
+        df_resumen_c = pd.DataFrame(resumen_combustible)
+
+        st.subheader("📊 Métrica General de Combustible de la Flota")
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total Combustible Consumido", f"{df_resumen_c['Total Galones Abastecidos'].sum():,.1f} Gal")
+        k2.metric("Total Horas Trabajadas", f"{df_resumen_c['Total Horas Operadas'].sum():,.1f} hrs")
+        k3.metric("Ratio Promedio Flota", f"{(df_resumen_c['Total Galones Abastecidos'].sum() / max(1, df_resumen_c['Total Horas Operadas'].sum())):,.2f} Gal/hr")
+
+        st.divider()
+        st.subheader("📋 Consolidado por Equipo")
+        st.dataframe(df_resumen_c, use_container_width=True)
+
+        st.divider()
+        st.subheader("📈 Comparativa de Consumo por Equipo (Galones Abastecidos)")
+        st.bar_chart(data=df_resumen_c.set_index("Código Equipo")["Total Galones Abastecidos"])
