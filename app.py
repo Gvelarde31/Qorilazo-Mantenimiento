@@ -42,7 +42,7 @@ def insertar_registro(nombre_tabla, datos):
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation"  # <--- Solicita que Supabase retorne la fila insertada con su ID
+        "Prefer": "return=representation"
     }
     try:
         response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
@@ -143,7 +143,7 @@ if modulo == "1. Lista Maestra & Acreditación":
         st.divider()
         st.subheader("🔍 Filtro de Flota por Permiso")
         doc_seleccionado = st.selectbox(
-            "Selecciona un Permiso:",
+            "Selecciona un Permiso para inspeccionar:",
             options=["TODOS"] + [nombres_amigables.get(c, c) for c in cols_monitoreadas if c in df.columns]
         )
         columnas_base = [col for col in ["placa", "codigo_interno", "marca", "modelo", "comentario", "fotocheck"] if col in df.columns]
@@ -164,13 +164,17 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
     equipos = consultar_tabla("equipos")
     
     if not equipos:
-        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'.")
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
         lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
         
+        st.subheader("📋 Formulario de Ingreso de Parte Diario")
+        
         with st.form("form_parte_diario", clear_on_submit=True):
+            st.markdown("##### 📍 Identificación del Equipo y Datos Operativos")
             col_1, col_2, col_3 = st.columns(3)
+            
             with col_1:
                 codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
                 fecha_parte = st.date_input("Fecha del Parte *", datetime.now().date())
@@ -181,41 +185,63 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 actividad = st.text_input("Actividad Realizada")
                 combustible = st.number_input("Combustible Abastecido (Galones)", min_value=0.0, step=0.5)
 
+            st.divider()
+            st.markdown("##### ⏱️ Lectura de Horómetros y Kilometraje")
             col_h1, col_h2 = st.columns(2)
+            
             with col_h1:
+                st.caption(" Horómetro (Horas)")
                 horo_init = st.number_input("Horómetro Inicial", min_value=0.0, step=0.1)
                 horo_fin = st.number_input("Horómetro Final", min_value=0.0, step=0.1)
+                horas_trab = max(0.0, horo_fin - horo_init)
+                st.info(f"**Horas Trabajadas (Cálculo Visual):** `{horas_trab:.1f} hrs`")
+
             with col_h2:
+                st.caption(" 🛣️ Odómetro (Kilómetros)")
                 km_init = st.number_input("Kilómetro Inicial", min_value=0.0, step=1.0)
                 km_fin = st.number_input("Kilómetro Final", min_value=0.0, step=1.0)
+                km_rec = max(0.0, km_fin - km_init)
+                st.info(f"**Kilómetros Recorridos (Cálculo Visual):** `{km_rec:.1f} km`")
 
-            observaciones = st.text_area("Observaciones")
+            st.divider()
+            observaciones = st.text_area("Observaciones / Novedades del Turno")
+            
             guardar = st.form_submit_button("💾 Guardar Parte Diario", use_container_width=True)
             
             if guardar:
-                nuevo_parte = {
-                    "fecha": str(fecha_parte),
-                    "codigo_equipo": codigo_sel,
-                    "turno": turno,
-                    "horometro_inicial": horo_init,
-                    "horometro_final": horo_fin,
-                    "kilometro_inicial": km_init,
-                    "kilometro_final": km_fin,
-                    "frente_asignado": frente_asignado,
-                    "actividad": actividad,
-                    "combustible_galones": combustible,
-                    "observaciones": observaciones
-                }
-                exito, msg = insertar_registro("partes_diarios", nuevo_parte)
-                if exito:
-                    st.success(f"✅ Parte diario registrado con éxito.")
-                    st.rerun()
+                if horo_fin < horo_init:
+                    st.error("❌ El Horómetro Final no puede ser menor al Horómetro Inicial.")
+                elif km_fin < km_init:
+                    st.error("❌ El Kilómetro Final no puede ser menor al Kilómetro Inicial.")
                 else:
-                    st.error(f"❌ Error Supabase: {msg}")
+                    nuevo_parte = {
+                        "fecha": str(fecha_parte),
+                        "codigo_equipo": codigo_sel,
+                        "turno": turno,
+                        "horometro_inicial": horo_init,
+                        "horometro_final": horo_fin,
+                        "kilometro_inicial": km_init,
+                        "kilometro_final": km_fin,
+                        "frente_asignado": frente_asignado,
+                        "actividad": actividad,
+                        "combustible_galones": combustible,
+                        "observaciones": observaciones
+                    }
+                    
+                    exito, msg = insertar_registro("partes_diarios", nuevo_parte)
+                    if exito:
+                        st.success(f"✅ Parte diario registrado con éxito para el equipo `{codigo_sel}`.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al guardar en Supabase: {msg}")
 
         st.divider()
-        partes = consultar_tabla("partes_diarios")
-        st.dataframe(pd.DataFrame(partes), use_container_width=True) if partes else st.info("Sin registros.")
+        st.subheader("📊 Historial de Partes Diarios Registrados")
+        partes_registrados = consultar_tabla("partes_diarios")
+        if partes_registrados:
+            st.dataframe(pd.DataFrame(partes_registrados), use_container_width=True)
+        else:
+            st.info("Aún no se han registrado partes diarios en la base de datos.")
 
 # ==========================================
 # MÓDULO 3: PROGRAMACIÓN SEMANAL PM
@@ -223,40 +249,57 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
 elif modulo == "3. Programación Semanal PM":
     st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
     equipos = consultar_tabla("equipos")
-    if equipos:
+    
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
+    else:
         df_equipos = pd.DataFrame(equipos)
         lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
+
+        st.subheader("🛠️ Agendar Mantenimiento Preventivo")
         
         with st.form("form_programacion_pm", clear_on_submit=True):
             col_p1, col_p2, col_p3 = st.columns(3)
+            
             with col_p1:
                 codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
                 tipo_pm = st.selectbox("Tipo de Mantenimiento *", ["PM1 (250 hrs)", "PM2 (500 hrs)", "PM3 (1000 hrs)", "PM4 (2000 hrs)", "Correctivo Planificado"])
             with col_p2:
                 fecha_prog = st.date_input("Fecha Programada *", datetime.now().date())
-                horo_proyectado = st.number_input("Horómetro Proyectado", min_value=0.0, step=10.0)
+                horo_proyectado = st.number_input("Horómetro / KM Proyectado", min_value=0.0, step=10.0)
             with col_p3:
-                responsable = st.text_input("Taller / Responsable", value="Taller Principal")
+                responsable = st.text_input("Taller / Responsable", value="Taller Principal Mantenimiento")
                 estado = st.selectbox("Estado Inicial", ["PROGRAMADO", "EN PROCESO", "COMPLETADO", "CANCELADO"])
                 
-            observaciones_pm = st.text_area("Observaciones")
+            observaciones_pm = st.text_area("Observaciones / Trabajos Específicos Requeridos")
+            
             guardar_pm = st.form_submit_button("🗓️ Guardar Programación PM", use_container_width=True)
             
             if guardar_pm:
                 nuevo_pm = {
-                    "codigo_equipo": codigo_sel, "fecha_programada": str(fecha_prog),
-                    "tipo_pm": tipo_pm, "horometro_proyectado": horo_proyectado,
-                    "responsable": responsable, "estado": estado, "observaciones": observaciones_pm
+                    "codigo_equipo": codigo_sel,
+                    "fecha_programada": str(fecha_prog),
+                    "tipo_pm": tipo_pm,
+                    "horometro_proyectado": horo_proyectado,
+                    "responsable": responsable,
+                    "estado": estado,
+                    "observaciones": observaciones_pm
                 }
+                
                 exito, msg = insertar_registro("programacion_pm", nuevo_pm)
                 if exito:
-                    st.success("✅ PM Programado.")
+                    st.success(f"✅ Mantenimiento `{tipo_pm}` programado con éxito para el equipo `{codigo_sel}`.")
                     st.rerun()
                 else:
-                    st.error(f"❌ Error Supabase: {msg}")
+                    st.error(f"❌ Error al guardar en Supabase: {msg}")
 
-        prog = consultar_tabla("programacion_pm")
-        st.dataframe(pd.DataFrame(prog), use_container_width=True) if prog else st.info("Sin registros.")
+        st.divider()
+        st.subheader("📊 Mantenimientos Preventivos Programados")
+        mantenimientos_prog = consultar_tabla("programacion_pm")
+        if mantenimientos_prog:
+            st.dataframe(pd.DataFrame(mantenimientos_prog), use_container_width=True)
+        else:
+            st.info("Aún no se han agendado mantenimientos preventivos en la base de datos.")
 
 # ==========================================
 # MÓDULO 4: HISTORIAL DE MANTENIMIENTOS & CONSUMO INTEGRADO
@@ -268,7 +311,7 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
     repuestos_cat = consultar_tabla("repuestos_cat")
     
     if not equipos:
-        st.warning("⚠️ No se encontraron equipos en 'equipos'.")
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
         lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
@@ -283,7 +326,7 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
 
         st.subheader("📝 Registrar Servicio Mecánico, Repuestos y Mano de Obra")
         
-        with st.form("form_mantenimientos_integrado", clear_on_submit=False):
+        with st.form("form_mantenimientos_integrado", clear_on_submit=True):
             st.markdown("##### 📍 Datos Cabecera del Mantenimiento (`mantenimientos`)")
             col_m1, col_m2, col_m3 = st.columns(3)
             
@@ -291,7 +334,12 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                 codigo_sel = st.selectbox("Código del Equipo *", lista_codigos)
                 tipo_maint = st.selectbox("Tipo de Mantenimiento *", ["Preventivo", "Correctivo", "Retorqueo", "Inspección Técnica"])
                 nivel_pm = st.selectbox("Nivel PM *", [
-                    "PM1 (250h)", "PM2 (500h)", "PM3 (1000h)", "PM4 (2000h)", "Correctivo / Reparación", "Otro"
+                    "PM1 (250h)", 
+                    "PM2 (500h)", 
+                    "PM3 (1000h)", 
+                    "PM4 (2000h)", 
+                    "Correctivo / Reparación", 
+                    "Otro"
                 ])
             with col_m2:
                 fecha_ejec = st.date_input("Fecha de Ejecución *", datetime.now().date())
@@ -342,7 +390,7 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     if isinstance(res_data, list) and len(res_data) > 0:
                         maint_id = res_data[0].get("id")
                     
-                    st.success(f"✅ Cabecera de Mantenimiento guardada con ID: `{maint_id}`.")
+                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID `{maint_id}`).")
                     
                     if maint_id:
                         nuevo_detalle = {
@@ -356,22 +404,29 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
 
                         exito_det, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
                         if exito_det:
-                            st.success(f"✅ Detalle insertado en `mantenimiento_detalles` correctamente.")
+                            st.success(f"✅ Detalle insertado correctamente en `mantenimiento_detalles`.")
                         else:
-                            st.error(f"❌ Error de Supabase al guardar en mantenimiento_detalles: {res_det}")
+                            st.error(f"❌ Error al insertar detalle: {res_det}")
+                    st.rerun()
                 else:
-                    st.error(f"❌ Error al guardar en mantenimientos: {res_data}")
+                    st.error(f"❌ Error al guardar cabecera en Supabase: {res_data}")
 
         st.divider()
         tab_h1, tab_h2 = st.tabs(["📊 Historial de Mantenimientos", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
         
         with tab_h1:
             historial_maint = consultar_tabla("mantenimientos")
-            st.dataframe(pd.DataFrame(historial_maint), use_container_width=True) if historial_maint else st.info("Sin registros.")
+            if historial_maint:
+                st.dataframe(pd.DataFrame(historial_maint), use_container_width=True)
+            else:
+                st.info("Aún no hay intervenciones registradas en 'mantenimientos'.")
 
         with tab_h2:
             detalles_registrados = consultar_tabla("mantenimiento_detalles")
-            st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True) if detalles_registrados else st.info("Sin registros.")
+            if detalles_registrados:
+                st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
+            else:
+                st.info("Aún no se han registrado repuestos en 'mantenimiento_detalles'.")
 
 # ==========================================
 # MÓDULO 5: CATÁLOGO DE REPUESTOS
@@ -404,7 +459,7 @@ elif modulo == "5. Catálogo de Repuestos":
         
         if guardar_rep:
             if not cod_repuesto.strip() or not descripcion_rep.strip():
-                st.error("❌ Debes ingresar el Código y la Descripción.")
+                st.error("❌ Debes ingresar el Código y la Descripción del repuesto.")
             else:
                 nuevo_repuesto = {
                     "codigo_repuesto": cod_repuesto.strip(),
@@ -415,10 +470,14 @@ elif modulo == "5. Catálogo de Repuestos":
                 }
                 exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
                 if exito:
-                    st.success(f"✅ Repuesto `{cod_repuesto}` guardado.")
+                    st.success(f"✅ Repuesto `{cod_repuesto}` guardado con éxito en `repuestos_cat`.")
                     st.rerun()
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {msg}")
 
     st.divider()
-    st.dataframe(pd.DataFrame(repuestos), use_container_width=True) if repuestos else st.info("Aún no hay registros.")
+    st.subheader("📋 Catálogo Maestro de Repuestos")
+    if repuestos:
+        st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
+    else:
+        st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
