@@ -78,6 +78,14 @@ def evaluar_fecha(fecha_str):
     except Exception:
         return "⚪ Formato inválido", "GRIS", None
 
+# Función auxiliar para calcular rango semanal (Sábado a Viernes)
+def obtener_rango_semana_sabado_viernes(fecha_ref):
+    # En Python: Lunes=0, Martes=1, Miércoles=2, Jueves=3, Viernes=4, Sábado=5, Domingo=6
+    dias_desde_sabado = (fecha_ref.weekday() - 5) % 7
+    inicio_sabado = fecha_ref - timedelta(days=dias_desde_sabado)
+    fin_viernes = inicio_sabado + timedelta(days=6)
+    return inicio_sabado, fin_viernes
+
 # Menú Lateral de Navegación
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
@@ -88,7 +96,8 @@ modulo = st.sidebar.radio(
         "4. Historial de Mantenimientos",
         "5. Registro de Detalles y Consumo de Repuestos",
         "6. Catálogo de Repuestos",
-        "7. KPIs y Ratio de Combustible"
+        "7. KPIs y Ratio de Combustible",
+        "8. Disponibilidad Mecánica"
     ]
 )
 
@@ -247,12 +256,10 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         if partes_registrados:
             df_partes_show = pd.DataFrame(partes_registrados)
             
-            # Cálculo seguro del Ratio (Gal/hr)
             if "combustible_galones" in df_partes_show.columns and "horometro_final" in df_partes_show.columns and "horometro_inicial" in df_partes_show.columns:
                 combust = pd.to_numeric(df_partes_show["combustible_galones"], errors="coerce").fillna(0.0)
                 h_fin = pd.to_numeric(df_partes_show["horometro_final"], errors="coerce").fillna(0.0)
                 h_ini = pd.to_numeric(df_partes_show["horometro_inicial"], errors="coerce").fillna(0.0)
-                
                 hrs = (h_fin - h_ini).clip(lower=0.0)
                 
                 ratio_series = combust.divide(hrs.replace(0, pd.NA)).fillna(0.0)
@@ -263,17 +270,15 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
 # ==========================================
-# MÓDULO 3: PROGRAMACIÓN SEMANAL PM (CALCULADO AUTOMÁTICAMENTE SEGÚN UNIDAD DE MEDIDA)
+# MÓDULO 3: PROGRAMACIÓN SEMANAL PM (SÁBADO A VIERNES)
 # ==========================================
 elif modulo == "3. Programación Semanal PM":
     st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
     
     hoy = datetime.now().date()
-    dias_desde_domingo = (hoy.weekday() + 1) % 7
-    inicio_semana = hoy - timedelta(days=dias_desde_domingo)
-    fin_semana = inicio_semana + timedelta(days=6)
+    inicio_semana, fin_semana = obtener_rango_semana_sabado_viernes(hoy)
     
-    st.info(f"📆 **Semana Operativa Actual:** Desde **Domingo {inicio_semana.strftime('%d/%m/%Y')}** hasta **Sábado {fin_semana.strftime('%d/%m/%Y')}**")
+    st.info(f"📆 **Semana Operativa Actual:** Desde **Sábado {inicio_semana.strftime('%d/%m/%Y')}** hasta **Viernes {fin_semana.strftime('%d/%m/%Y')}**")
 
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
@@ -586,10 +591,8 @@ elif modulo == "7. KPIs y Ratio de Combustible":
         df_p = pd.DataFrame(partes)
         df_eq = pd.DataFrame(equipos)
 
-        # Identificar columna tipo_flota en equipos
         col_tipo_flota = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
 
-        # Asegurar tipos numéricos en partes diarios
         df_p["combustible_galones"] = pd.to_numeric(df_p["combustible_galones"], errors="coerce").fillna(0.0)
         df_p["horometro_final"] = pd.to_numeric(df_p["horometro_final"], errors="coerce").fillna(0.0)
         df_p["horometro_inicial"] = pd.to_numeric(df_p["horometro_inicial"], errors="coerce").fillna(0.0)
@@ -599,7 +602,6 @@ elif modulo == "7. KPIs y Ratio de Combustible":
         df_p["horas_trabajadas"] = (df_p["horometro_final"] - df_p["horometro_inicial"]).clip(lower=0.0)
         df_p["km_recorridos"] = (df_p["kilometro_final"] - df_p["kilometro_inicial"]).clip(lower=0.0)
 
-        # Cruzar partes diarios con la tabla equipos para obtener el tipo_flota y unidad_medida
         df_merged = df_p.merge(
             df_eq[["codigo_interno", col_tipo_flota, "unidad_medida"]],
             left_on="codigo_equipo",
@@ -642,7 +644,6 @@ elif modulo == "7. KPIs y Ratio de Combustible":
         else:
             df_filtrado = df_resumen_c
 
-        # Métricas generales por el Tipo de Flota Seleccionado
         st.subheader(f"📊 Métricas Acumuladas: Flota {tipo_flota_sel}")
         k1, k2, k3 = st.columns(3)
         total_gal_sel = float(df_filtrado['Total Galones Abastecidos'].sum())
@@ -664,3 +665,93 @@ elif modulo == "7. KPIs y Ratio de Combustible":
             st.bar_chart(data=df_filtrado.set_index("Código Equipo")["Total Galones Abastecidos"])
         else:
             st.info("No hay datos para la categoría seleccionada.")
+
+# ==========================================
+# MÓDULO 8: DISPONIBILIDAD MECÁNICA POR EQUIPO Y FRENTE (SÁBADO A VIERNES)
+# ==========================================
+elif modulo == "8. Disponibilidad Mecánica":
+    st.header("📈 Disponibilidad Mecánica de la Flota (%)")
+    st.caption("Cálculo del porcentaje de operación de los equipos en la semana activa (Sábado a Viernes).")
+
+    hoy = datetime.now().date()
+    inicio_semana, fin_semana = obtener_rango_semana_sabado_viernes(hoy)
+
+    st.info(f"📆 **Semana Evaluada:** Desde **Sábado {inicio_semana.strftime('%d/%m/%Y')}** hasta **Viernes {fin_semana.strftime('%d/%m/%Y')}** (7 días base)")
+
+    equipos = consultar_tabla("equipos")
+    partes = consultar_tabla("partes_diarios")
+
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'.")
+    else:
+        df_eq = pd.DataFrame(equipos)
+        df_partes = pd.DataFrame(partes) if partes else pd.DataFrame()
+
+        col_codigo = "codigo_interno" if "codigo_interno" in df_eq.columns else "codigo_equipo"
+        col_frente_eq = "frente_trabajo" if "frente_trabajo" in df_eq.columns else [c for c in df_eq.columns if "frente" in c or "ubicacion" in c or "frente_asignado" in c]
+        col_frente_eq_name = col_frente_eq[0] if isinstance(col_frente_eq, list) and col_frente_eq else "frente_trabajo"
+
+        disp_lista = []
+
+        for _, eq in df_eq.iterrows():
+            cod = eq.get(col_codigo)
+            frente = eq.get(col_frente_eq_name) or "Sin Frente Asignado"
+
+            dias_operativos = 0
+            if not df_partes.empty and "codigo_equipo" in df_partes.columns and "fecha" in df_partes.columns:
+                partes_eq = df_partes[
+                    (df_partes["codigo_equipo"] == cod) &
+                    (df_partes["fecha"] >= str(inicio_semana)) &
+                    (df_partes["fecha"] <= str(fin_semana))
+                ]
+                
+                if not partes_eq.empty:
+                    dias_operativos = partes_eq["fecha"].nunique()
+
+            dias_op = min(dias_operativos, 7)
+            dias_inop = 7 - dias_op
+            porcentaje_disp = round((dias_op / 7.0) * 100, 1)
+
+            if porcentaje_disp >= 85.0:
+                estado_disp = "🟢 ALTA DISPONIBILIDAD"
+            elif 50.0 <= porcentaje_disp < 85.0:
+                estado_disp = "🟡 DISPONIBILIDAD MEDIA"
+            else:
+                estado_disp = "🔴 CRÍTICO / INOPERATIVO"
+
+            disp_lista.append({
+                "Código Equipo": cod,
+                "Frente de Trabajo": frente,
+                "Días Operativos": dias_op,
+                "Días Inoperativos": dias_inop,
+                "Disponibilidad (%)": porcentaje_disp,
+                "Estado": estado_disp
+            })
+
+        df_disp = pd.DataFrame(disp_lista)
+
+        st.subheader("🔍 Filtro por Frente de Trabajo")
+        frentes_unicos = ["TODOS LOS FRENTES"] + sorted(list(df_disp["Frente de Trabajo"].dropna().unique()))
+        frente_sel = st.selectbox("Selecciona el frente de trabajo para inspeccionar:", frentes_unicos)
+
+        if frente_sel != "TODOS LOS FRENTES":
+            df_disp_fil = df_disp[df_disp["Frente de Trabajo"] == frente_sel]
+        else:
+            df_disp_fil = df_disp
+
+        st.subheader(f"📊 Resumen de Disponibilidad ({frente_sel})")
+        m1, m2, k_prom = st.columns(3)
+        prom_disp = df_disp_fil["Disponibilidad (%)"].mean() if not df_disp_fil.empty else 0.0
+
+        m1.metric("Equipos Evaluados", len(df_disp_fil))
+        m2.metric("Equipos Alta Disponibilidad (≥85%)", len(df_disp_fil[df_disp_fil["Disponibilidad (%)"] >= 85.0]))
+        k_prom.metric("Disponibilidad Mecánica Promedio", f"{prom_disp:.1f} %")
+
+        st.divider()
+        st.subheader("📋 Matriz Semanal de Disponibilidad Mecánica por Equipo")
+        st.dataframe(df_disp_fil, use_container_width=True)
+
+        st.divider()
+        st.subheader(f"📈 Gráfico de Disponibilidad Mecánica (%) por Equipo - {frente_sel}")
+        if not df_disp_fil.empty:
+            st.bar_chart(data=df_disp_fil.set_index("Código Equipo")["Disponibilidad (%)"])
