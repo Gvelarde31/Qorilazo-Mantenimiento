@@ -465,33 +465,40 @@ elif modulo == "5. Catálogo de Repuestos":
     with st.form("form_repuestos_cat", clear_on_submit=True):
         col_r1, col_r2, col_r3 = st.columns(3)
         with col_r1:
-            cod_repuesto = st.text_input("Código de Repuesto / SKU *")
+            cod_repuesto = st.text_input("Código de Repuesto / SKU (Opcional)")
             descripcion_rep = st.text_input("Descripción del Repuesto / Parte *")
         with col_r2:
-            categoria = st.selectbox("Categoría *", ["Filtros", "Lubricantes / Fluidos", "Sistema Eléctrico", "Neumáticos", "Motor", "Frenos / Suspensión", "Otros"])
-            unidad = st.selectbox("Unidad de Medida *", ["Unidad", "Galón", "Juego / Kit", "Litro", "Metro", "Caja"])
+            categoria = st.selectbox("Categoría *", [
+                "Filtros", 
+                "Lubricantes", 
+                "Eléctrico", 
+                "Neumáticos", 
+                "Motor", 
+                "Frenos", 
+                "Mangueras / Hidráulica",
+                "General"
+            ])
+            unidad = st.selectbox("Unidad de Medida *", ["Unidad", "Galón", "Juego", "Litro", "Metro", "Caja"])
         with col_r3:
             precio_ref = st.number_input("Precio Referencial (USD / PEN)", min_value=0.0, step=1.0)
 
         guardar_rep = st.form_submit_button("💾 Guardar Repuesto en Catálogo", use_container_width=True)
         
         if guardar_rep:
-            if not cod_repuesto.strip() or not descripcion_rep.strip():
-                st.error("❌ Debes ingresar el Código y la Descripción del repuesto.")
+            # Se envía directamente a Supabase sin bloquear por el código
+            nuevo_repuesto = {
+                "codigo_repuesto": cod_repuesto.strip() if cod_repuesto else None,
+                "descripcion": descripcion_rep.strip(),
+                "categoria": categoria,
+                "unidad_medida": unidad,
+                "precio_referencial": precio_ref
+            }
+            exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
+            if exito:
+                st.success("✅ Repuesto guardado con éxito en `repuestos_cat`.")
+                st.rerun()
             else:
-                nuevo_repuesto = {
-                    "codigo_repuesto": cod_repuesto.strip(),
-                    "descripcion": descripcion_rep.strip(),
-                    "categoria": categoria,
-                    "unidad_medida": unidad,
-                    "precio_referencial": precio_ref
-                }
-                exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
-                if exito:
-                    st.success(f"✅ Repuesto `{cod_repuesto}` guardado con éxito en `repuestos_cat`.")
-                    st.rerun()
-                else:
-                    st.error(f"❌ Error al guardar en Supabase: {msg}")
+                st.error(f"❌ Error al guardar en Supabase: {msg}")
 
     st.divider()
     st.subheader("📋 Catálogo Maestro de Repuestos")
