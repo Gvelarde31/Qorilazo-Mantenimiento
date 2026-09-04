@@ -761,7 +761,7 @@ elif modulo == "8. Disponibilidad Mecánica":
 # ==========================================
 elif modulo == "9. Reporte Exportable & Evidencias A4":
     st.header("📄 Reporte Exportable de Mantenimientos & Dossier de Evidencias A4")
-    st.caption("Consolidado con asignación manual de OT y estado, listo para exportación y vista previa A4.")
+    st.caption("Consolidado con asignación manual de OT y estado, exportación a Excel en columnas independientes.")
 
     mantenimientos = consultar_tabla("mantenimientos")
     equipos = consultar_tabla("equipos")
@@ -808,17 +808,37 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 
         st.divider()
 
-        # Exportación rápida a CSV compatible con Excel
-        cols_csv = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"] if c in df_editado.columns]
-        csv_data = df_editado[cols_csv].to_csv(index=False).encode('utf-8-sig')
+        # Generación de archivo Excel (.xlsx) nativo con pestañas
+        buffer_excel = io.BytesIO()
+        try:
+            with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
+                # Hoja 1: Resumen de Mantenimiento y OTs
+                cols_h1 = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado"] if c in df_editado.columns]
+                df_editado[cols_h1].to_excel(writer, sheet_name="Resumen_Mantenimientos", index=False)
 
-        st.download_button(
-            label="📥 Descargar Reporte Consolidado (CSV / Excel)",
-            data=csv_data,
-            file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+                # Hoja 2: Evidencias Fotográficas
+                cols_h2 = [c for c in ["OT", "codigo_interno", "nivel_pm", "foto_evidencia_url"] if c in df_editado.columns]
+                df_editado[cols_h2].to_excel(writer, sheet_name="Mapeo_Evidencias", index=False)
+
+            st.download_button(
+                label="📊 Descargar Reporte en Excel Nativo (.xlsx)",
+                data=buffer_excel.getvalue(),
+                file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        except Exception:
+            # Opción alternativa formateada con punto y coma (;) para Excel regional en español
+            cols_csv = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"] if c in df_editado.columns]
+            csv_data = df_editado[cols_csv].to_csv(index=False, sep=";").encode('utf-8-sig')
+
+            st.download_button(
+                label="📥 Descargar Reporte Formateado (CSV con separador ;)",
+                data=csv_data,
+                file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 
         st.divider()
         st.subheader("🖼️ Vista Previa Formato A4 - Dossier de Evidencias (2 Fotos por Línea)")
