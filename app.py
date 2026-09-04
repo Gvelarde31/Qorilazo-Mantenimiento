@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Configuración de la página
 st.set_page_config(
@@ -42,12 +42,13 @@ def insertar_registro(nombre_tabla, datos):
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=minimal"
+        "Prefer": "return=representation"
     }
     try:
         response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
         if response.status_code in [200, 201]:
-            return True, "OK"
+            res_json = response.json()
+            return True, res_json
         else:
             return False, response.text
     except Exception as e:
@@ -81,7 +82,7 @@ modulo = st.sidebar.radio(
         "1. Lista Maestra & Acreditación",
         "2. Registro Diario de Partes y Tareo",
         "3. Programación Semanal PM",
-        "4. Historial de Mantenimientos",
+        "4. Historial de Mantenimientos & Consumo",
         "5. Catálogo de Repuestos"
     ]
 )
@@ -263,6 +264,7 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                     exito, msg = insertar_registro("partes_diarios", nuevo_parte)
                     if exito:
                         st.success(f"✅ Parte diario registrado con éxito para el equipo `{codigo_sel}`.")
+                        st.rerun()
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {msg}")
 
@@ -275,10 +277,10 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
 # ==========================================
-# MÓDULO 3 Y 4: HISTORIAL Y REGISTRO DE MANTENIMIENTOS
+# MÓDULO 3: PROGRAMACIÓN SEMANAL PM
 # ==========================================
-elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]:
-    st.header("🔧 Registro y Control de Mantenimientos de Equipos")
+elif modulo == "3. Programación Semanal PM":
+    st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
     
     equipos = consultar_tabla("equipos")
     
@@ -293,9 +295,85 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
             col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
             lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
 
-        st.subheader("📝 Registrar Nuevo Mantenimiento Ejecutado")
+        st.subheader("🛠️ Agendar Mantenimiento Preventivo")
         
-        with st.form("form_mantenimientos", clear_on_submit=True):
+        with st.form("form_programacion_pm", clear_on_submit=True):
+            col_p1, col_p2, col_p3 = st.columns(3)
+            
+            with col_p1:
+                codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
+                tipo_pm = st.selectbox("Tipo de Mantenimiento *", ["PM1 (250 hrs)", "PM2 (500 hrs)", "PM3 (1000 hrs)", "PM4 (2000 hrs)", "Correctivo Planificado"])
+            with col_p2:
+                fecha_prog = st.date_input("Fecha Programada *", datetime.now().date())
+                horo_proyectado = st.number_input("Horómetro / KM Proyectado", min_value=0.0, step=10.0)
+            with col_p3:
+                responsable = st.text_input("Taller / Responsable", value="Taller Principal Mantenimiento")
+                estado = st.selectbox("Estado Inicial", ["PROGRAMADO", "EN PROCESO", "COMPLETADO", "CANCELADO"])
+                
+            observaciones_pm = st.text_area("Observaciones / Trabajos Específicos Requeridos")
+            
+            guardar_pm = st.form_submit_button("🗓️ Guardar Programación PM", use_container_width=True)
+            
+            if guardar_pm:
+                nuevo_pm = {
+                    "codigo_equipo": codigo_sel,
+                    "fecha_programada": str(fecha_prog),
+                    "tipo_pm": tipo_pm,
+                    "horometro_proyectado": horo_proyectado,
+                    "responsable": responsable,
+                    "estado": estado,
+                    "observaciones": observaciones_pm
+                }
+                
+                exito, msg = insertar_registro("programacion_pm", nuevo_pm)
+                if exito:
+                    st.success(f"✅ Mantenimiento `{tipo_pm}` programado con éxito para el equipo `{codigo_sel}`.")
+                    st.rerun()
+                else:
+                    st.error(f"❌ Error al guardar en Supabase: {msg}")
+
+        st.divider()
+        st.subheader("📊 Mantenimientos Preventivos Programados")
+        
+        mantenimientos_prog = consultar_tabla("programacion_pm")
+        if mantenimientos_prog:
+            st.dataframe(pd.DataFrame(mantenimientos_prog), use_container_width=True)
+        else:
+            st.info("Aún no se han agendado mantenimientos preventivos en la base de datos.")
+
+# ==========================================
+# MÓDULO 4: HISTORIAL DE MANTENIMIENTOS & CONSUMO INTEGRADO
+# ==========================================
+elif modulo == "4. Historial de Mantenimientos & Consumo":
+    st.header("🔧 Registro de Mantenimientos y Consumo de Repuestos")
+    
+    equipos = consultar_tabla("equipos")
+    repuestos_cat = consultar_tabla("repuestos_cat")
+    
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
+    else:
+        df_equipos = pd.DataFrame(equipos)
+        
+        if "codigo_interno" in df_equipos.columns:
+            lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
+        else:
+            col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
+            lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
+
+        # Preparar opciones de repuestos desde 'repuestos_cat'
+        opciones_repuestos = ["Sin repuesto adicional"]
+        dict_repuestos = {}
+        if repuestos_cat:
+            for r in repuestos_cat:
+                label = f"ID: {r.get('id')} | {r.get('codigo_repuesto')} - {r.get('descripcion')}"
+                opciones_repuestos.append(label)
+                dict_repuestos[label] = r
+
+        st.subheader("📝 Registrar Servicio Mecánico y Repuestos Utilizados")
+        
+        with st.form("form_mantenimientos_integrado", clear_on_submit=True):
+            st.markdown("##### 📍 Datos Cabecera del Mantenimiento (`mantenimientos`)")
             col_m1, col_m2, col_m3 = st.columns(3)
             
             with col_m1:
@@ -318,10 +396,29 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
                 prox_horo = st.number_input("Próximo Horómetro Proyectado", min_value=0.0, step=10.0)
                 prox_km = st.number_input("Próximo Kilometraje Proyectado", min_value=0.0, step=100.0)
 
-            descripcion = st.text_area("Descripción de Trabajos / Repuestos Cambiados")
+            descripcion = st.text_area("Descripción de Trabajos Realizados")
             foto_url = st.text_input("URL / Enlace de Evidencia Fotográfica (Opcional)")
+
+            st.divider()
+            st.markdown("##### 🛠️ Detalle de Repuesto Asociado (`mantenimiento_detalles`)")
             
-            guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento en Supabase", use_container_width=True)
+            col_r1, col_r2, col_r3 = st.columns(3)
+            with col_r1:
+                repuesto_sel = st.selectbox("Repuesto Utilizado (Opcional)", opciones_repuestos)
+            with col_r2:
+                cant_usada = st.number_input("Cantidad Utilizada", min_value=0, step=1, value=0)
+            with col_r3:
+                # Carga de precio referencial si selecciona repuesto
+                precio_def = 0.0
+                if repuesto_sel != "Sin repuesto adicional" and repuesto_sel in dict_repuestos:
+                    precio_def = float(dict_repuestos[repuesto_sel].get("precio_referencial") or 0.0)
+                precio_u = st.number_input("Precio Unitario", min_value=0.0, step=0.5, value=precio_def)
+
+            subtotal_calc = cant_usada * precio_u
+            if cant_usada > 0:
+                st.info(f"**Costo Subtotal de Repuestos:** `{subtotal_calc:.2f}`")
+
+            guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento & Consumo en Supabase", use_container_width=True)
             
             if guardar_maint:
                 nuevo_mantenimiento = {
@@ -338,28 +435,57 @@ elif modulo in ["3. Programación Semanal PM", "4. Historial de Mantenimientos"]
                     "foto_evidencia_url": foto_url
                 }
                 
-                exito, msg = insertar_registro("mantenimientos", nuevo_mantenimiento)
+                exito, res_data = insertar_registro("mantenimientos", nuevo_mantenimiento)
                 if exito:
-                    st.success(f"✅ Mantenimiento registrado correctamente para el equipo `{codigo_sel}`.")
+                    maint_id = None
+                    if isinstance(res_data, list) and len(res_data) > 0:
+                        maint_id = res_data[0].get("id")
+                    
+                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}`.")
+                    
+                    # Guardar en 'mantenimiento_detalles' si seleccionó un repuesto
+                    if repuesto_sel != "Sin repuesto adicional" and cant_usada > 0 and maint_id:
+                        rep_id = dict_repuestos[repuesto_sel].get("id")
+                        nuevo_detalle = {
+                            "mantenimiento_id": maint_id,
+                            "respuestos_id": rep_id,
+                            "cantidad": cant_usada,
+                            "precio_unitario": precio_u,
+                            "costo_subtotal": subtotal_calc
+                        }
+                        exito_det, msg_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
+                        if exito_det:
+                            st.success(f"✅ Detalle de repuesto asociado correctamente al Mantenimiento ID `{maint_id}`.")
+                        else:
+                            st.error(f"⚠️ Mantenimiento guardado, pero falló el detalle: {msg_det}")
+                    st.rerun()
                 else:
-                    st.error(f"❌ Error al guardar en Supabase: {msg}")
+                    st.error(f"❌ Error al guardar en Supabase: {res_data}")
 
         st.divider()
-        st.subheader("📊 Historial General de Mantenimientos Realizados")
         
-        historial_maint = consultar_tabla("mantenimientos")
-        if historial_maint:
-            df_maint = pd.DataFrame(historial_maint)
-            st.dataframe(df_maint, use_container_width=True)
-        else:
-            st.info("Aún no hay intervenciones registradas en la tabla 'mantenimientos'.")
+        tab_h1, tab_h2 = st.tabs(["📊 Historial de Mantenimientos", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
+        
+        with tab_h1:
+            historial_maint = consultar_tabla("mantenimientos")
+            if historial_maint:
+                st.dataframe(pd.DataFrame(historial_maint), use_container_width=True)
+            else:
+                st.info("Aún no hay intervenciones registradas en 'mantenimientos'.")
+
+        with tab_h2:
+            detalles_registrados = consultar_tabla("mantenimiento_detalles")
+            if detalles_registrados:
+                st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
+            else:
+                st.info("Aún no se han registrado repuestos en 'mantenimiento_detalles'.")
+
 # ==========================================
-# MÓDULO 5: CATÁLOGO DE REPUESTOS Y DETALLES
+# MÓDULO 5: CATÁLOGO DE REPUESTOS
 # ==========================================
 elif modulo == "5. Catálogo de Repuestos":
-    st.header("📦 Catálogo de Repuestos y Consumo por Mantenimiento")
+    st.header("📦 Catálogo Maestro de Repuestos e Insumos (`repuestos_cat`)")
     
-    # Consulta a la tabla exacta 'repuestos_cat'
     repuestos = consultar_tabla("repuestos_cat")
     
     if repuestos:
@@ -372,7 +498,7 @@ elif modulo == "5. Catálogo de Repuestos":
         
         st.divider()
 
-    st.subheader("➕ Registrar Nuevo Repuesto en Catálogo (repuestos_cat)")
+    st.subheader("➕ Registrar Nuevo Repuesto en Catálogo")
     
     with st.form("form_repuestos_cat", clear_on_submit=True):
         col_r1, col_r2, col_r3 = st.columns(3)
@@ -405,26 +531,14 @@ elif modulo == "5. Catálogo de Repuestos":
                 exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
                 if exito:
                     st.success(f"✅ Repuesto `{cod_repuesto}` guardado con éxito en `repuestos_cat`.")
-                    st.rerun()  # <--- Fuerza el refresco automático de la pantalla
+                    st.rerun()
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {msg}")
 
     st.divider()
+    st.subheader("📋 Catálogo Maestro de Repuestos")
     
-    # Pestañas para visualizar Catálogo y Consumos de Repuestos
-    tab1, tab2 = st.tabs(["📋 Catálogo Maestro (repuestos_cat)", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
-    
-    with tab1:
-        # Volver a consultar para asegurar datos frescos si fue actualizado
-        repuestos_frescos = consultar_tabla("repuestos_cat")
-        if repuestos_frescos:
-            st.dataframe(pd.DataFrame(repuestos_frescos), use_container_width=True)
-        else:
-            st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
-            
-    with tab2:
-        detalles = consultar_tabla("mantenimiento_detalles")
-        if detalles:
-            st.dataframe(pd.DataFrame(detalles), use_container_width=True)
-        else:
-            st.info("Aún no se han asignado repuestos a los mantenimientos en 'mantenimiento_detalles'.")
+    if repuestos:
+        st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
+    else:
+        st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
