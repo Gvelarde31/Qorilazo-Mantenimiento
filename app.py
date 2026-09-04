@@ -405,6 +405,7 @@ elif modulo == "5. Catálogo de Repuestos":
                 exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
                 if exito:
                     st.success(f"✅ Repuesto `{cod_repuesto}` guardado con éxito en `repuestos_cat`.")
+                    st.rerun()  # <--- Fuerza el refresco automático de la pantalla
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {msg}")
 
@@ -414,8 +415,10 @@ elif modulo == "5. Catálogo de Repuestos":
     tab1, tab2 = st.tabs(["📋 Catálogo Maestro (repuestos_cat)", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
     
     with tab1:
-        if repuestos:
-            st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
+        # Volver a consultar para asegurar datos frescos si fue actualizado
+        repuestos_frescos = consultar_tabla("repuestos_cat")
+        if repuestos_frescos:
+            st.dataframe(pd.DataFrame(repuestos_frescos), use_container_width=True)
         else:
             st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
             
