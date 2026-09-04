@@ -32,7 +32,7 @@ def consultar_tabla(nombre_tabla):
     params = {"select": "*"}
     try:
         response = requests.get(url_endpoint, headers=headers, params=params, timeout=10)
-        return response.json() if response.status_code == 200 else []
+        return response.json() if response.status_code in [200, 201] else []
     except Exception:
         return []
 
@@ -47,8 +47,11 @@ def insertar_registro(nombre_tabla, datos):
     try:
         response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
         if response.status_code in [200, 201]:
-            res_json = response.json()
-            return True, res_json
+            try:
+                res_json = response.json()
+                return True, res_json
+            except Exception:
+                return True, []
         else:
             return False, response.text
     except Exception as e:
@@ -92,32 +95,20 @@ modulo = st.sidebar.radio(
 # ==========================================
 if modulo == "1. Lista Maestra & Acreditación":
     st.header("📋 Dashboard de Control y Acreditaciones Mineras")
-    
     equipos = consultar_tabla("equipos")
     
     if equipos:
         df = pd.DataFrame(equipos)
-        
         cols_monitoreadas = [
-            "fecha_venc_soat",
-            "fecha_venc_poliza",
-            "fecha_retorqueo_ruedas",
-            "fecha_venc_citv",
-            "fecha_venc_gps",
-            "fecha_venc_tarjeta_mercancias",
-            "fecha_venc_cert_operatividad",
-            "fecha_venc_cert_inspección"
+            "fecha_venc_soat", "fecha_venc_poliza", "fecha_retorqueo_ruedas",
+            "fecha_venc_citv", "fecha_venc_gps", "fecha_venc_tarjeta_mercancias",
+            "fecha_venc_cert_operatividad", "fecha_venc_cert_inspección"
         ]
-        
         nombres_amigables = {
-            "fecha_venc_soat": "SOAT",
-            "fecha_venc_poliza": "Póliza",
-            "fecha_retorqueo_ruedas": "Retorqueo Ruedas",
-            "fecha_venc_citv": "Revisión Técnica (CITV)",
-            "fecha_venc_gps": "GPS",
-            "fecha_venc_tarjeta_mercancias": "Tarjeta Mercancías",
-            "fecha_venc_cert_operatividad": "Certif. Operatividad",
-            "fecha_venc_cert_inspección": "Certif. Inspección"
+            "fecha_venc_soat": "SOAT", "fecha_venc_poliza": "Póliza",
+            "fecha_retorqueo_ruedas": "Retorqueo Ruedas", "fecha_venc_citv": "Revisión Técnica (CITV)",
+            "fecha_venc_gps": "GPS", "fecha_venc_tarjeta_mercancias": "Tarjeta Mercancías",
+            "fecha_venc_cert_operatividad": "Certif. Operatividad", "fecha_venc_cert_inspección": "Certif. Inspección"
         }
 
         resumen_alertas = []
@@ -126,21 +117,15 @@ if modulo == "1. Lista Maestra & Acreditación":
                 resultados = df[col].apply(evaluar_fecha)
                 df[f"estado_{col}"] = [r[0] for r in resultados]
                 colores = [r[1] for r in resultados]
-                
-                rojos = colores.count("ROJO")
-                amarillos = colores.count("AMARILLO")
-                verdes = colores.count("VERDE")
-                
                 resumen_alertas.append({
                     "Clave": col,
                     "Documento / Permiso": nombres_amigables.get(col, col),
-                    "🔴 Crítico (≤15d)": rojos,
-                    "🟡 Alerta (16-31d)": amarillos,
-                    "🟢 Vigente (≥32d)": verdes
+                    "🔴 Crítico (≤15d)": colores.count("ROJO"),
+                    "🟡 Alerta (16-31d)": colores.count("AMARILLO"),
+                    "🟢 Vigente (≥32d)": colores.count("VERDE")
                 })
 
         df_resumen = pd.DataFrame(resumen_alertas)
-
         st.subheader("🚨 Resumen Rápido de Estado por Documento / Permiso")
         cols_grid = st.columns(4)
         for idx, row in df_resumen.iterrows():
@@ -153,32 +138,21 @@ if modulo == "1. Lista Maestra & Acreditación":
                     alerta_texto += f"🟡 {row['🟡 Alerta (16-31d)']}"
                 if not alerta_texto:
                     alerta_texto = "🟢 0 Alertas"
-                    
-                st.metric(
-                    label=f"📌 {row['Documento / Permiso']}",
-                    value=alerta_texto,
-                    delta=f"Total Evaluados: {len(df)}",
-                    delta_color="off"
-                )
+                st.metric(label=f"📌 {row['Documento / Permiso']}", value=alerta_texto)
 
         st.divider()
         st.subheader("🔍 Filtro de Flota por Permiso")
-        
         doc_seleccionado = st.selectbox(
             "Selecciona un Permiso para inspeccionar el semáforo detallado de la flota:",
             options=["TODOS"] + [nombres_amigables.get(c, c) for c in cols_monitoreadas if c in df.columns]
         )
-
         columnas_base = [col for col in ["placa", "codigo_interno", "marca", "modelo", "comentario", "fotocheck"] if col in df.columns]
-        
         if doc_seleccionado == "TODOS":
             cols_mostrar = columnas_base + [f"estado_{c}" for c in cols_monitoreadas if f"estado_{c}" in df.columns]
         else:
             clave_col = [k for k, v in nombres_amigables.items() if v == doc_seleccionado][0]
             cols_mostrar = columnas_base + [clave_col, f"estado_{clave_col}"]
-
         st.dataframe(df[cols_mostrar], use_container_width=True)
-
     else:
         st.info("No hay datos registrados en la flota aún.")
 
@@ -187,19 +161,13 @@ if modulo == "1. Lista Maestra & Acreditación":
 # ==========================================
 elif modulo == "2. Registro Diario de Partes y Tareo":
     st.header("📝 Registro Diario de Partes de Trabajo y Tareo")
-    
     equipos = consultar_tabla("equipos")
     
     if not equipos:
         st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
-        
-        if "codigo_interno" in df_equipos.columns:
-            lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
-        else:
-            col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
-            lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
+        lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
         
         st.subheader("📋 Formulario de Ingreso de Parte Diario")
         
@@ -218,7 +186,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 combustible = st.number_input("Combustible Abastecido (Galones)", min_value=0.0, step=0.5)
 
             st.divider()
-            
             st.markdown("##### ⏱️ Lectura de Horómetros y Kilometraje")
             col_h1, col_h2 = st.columns(2)
             
@@ -277,69 +244,80 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
 # ==========================================
-# MÓDULO 3: PROGRAMACIÓN SEMANAL PM
+# MÓDULO 3: PROGRAMACIÓN SEMANAL PM (USANDO TABLA 'mantenimientos')
 # ==========================================
 elif modulo == "3. Programación Semanal PM":
-    st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
+    st.header("📅 Programación y Proyección Semanal de Mantenimiento Preventivo (PM)")
+    st.caption("Gestionado directamente desde los mantenimientos ejecutados y sus próximas proyecciones.")
     
     equipos = consultar_tabla("equipos")
+    mantenimientos = consultar_tabla("mantenimientos")
+    partes = consultar_tabla("partes_diarios")
     
     if not equipos:
-        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
-        
-        if "codigo_interno" in df_equipos.columns:
-            lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
-        else:
-            col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
-            lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
+        lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
 
-        st.subheader("🛠️ Agendar Mantenimiento Preventivo")
+        st.subheader("🗓️ Agendar Proyección de Mantenimiento Preventivo")
         
-        with st.form("form_programacion_pm", clear_on_submit=True):
+        with st.form("form_programacion_mantenimiento", clear_on_submit=True):
             col_p1, col_p2, col_p3 = st.columns(3)
             
             with col_p1:
                 codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
-                tipo_pm = st.selectbox("Tipo de Mantenimiento *", ["PM1 (250 hrs)", "PM2 (500 hrs)", "PM3 (1000 hrs)", "PM4 (2000 hrs)", "Correctivo Planificado"])
+                nivel_pm = st.selectbox("Nivel de PM Programado *", [
+                    "PM1 (250h)", 
+                    "PM2 (500h)", 
+                    "PM3 (1000h)", 
+                    "PM4 (2000h)", 
+                    "Correctivo / Reparación", 
+                    "Otro"
+                ])
             with col_p2:
-                fecha_prog = st.date_input("Fecha Programada *", datetime.now().date())
-                horo_proyectado = st.number_input("Horómetro / KM Proyectado", min_value=0.0, step=10.0)
+                fecha_ejec = st.date_input("Fecha Programada / Estimada *", datetime.now().date())
+                prox_horo = st.number_input("Horómetro Proyectado de Servicio", min_value=0.0, step=10.0)
             with col_p3:
-                responsable = st.text_input("Taller / Responsable", value="Taller Principal Mantenimiento")
-                estado = st.selectbox("Estado Inicial", ["PROGRAMADO", "EN PROCESO", "COMPLETADO", "CANCELADO"])
+                proveedor = st.text_input("Taller / Proveedor Responsable", value="Taller Principal")
+                prox_km = st.number_input("Kilometraje Proyectado de Servicio", min_value=0.0, step=100.0)
                 
-            observaciones_pm = st.text_area("Observaciones / Trabajos Específicos Requeridos")
+            descripcion_prog = st.text_area("Trabajos / Repuestos Requeridos para la Programación")
             
-            guardar_pm = st.form_submit_button("🗓️ Guardar Programación PM", use_container_width=True)
+            guardar_prog = st.form_submit_button("💾 Guardar Programación en Mantenimientos", use_container_width=True)
             
-            if guardar_pm:
-                nuevo_pm = {
+            if guardar_prog:
+                nuevo_mantenimiento_prog = {
                     "codigo_equipo": codigo_sel,
-                    "fecha_programada": str(fecha_prog),
-                    "tipo_pm": tipo_pm,
-                    "horometro_proyectado": horo_proyectado,
-                    "responsable": responsable,
-                    "estado": estado,
-                    "observaciones": observaciones_pm
+                    "tipo_mantenimiento": "Preventivo",
+                    "fecha_ejecucion": str(fecha_ejec),
+                    "horometro_ejecucion": 0.0,
+                    "kilometraje_ejecucion": 0.0,
+                    "nivel_pm": nivel_pm,
+                    "proximo_horometro": prox_horo,
+                    "proximo_kilometraje": prox_km,
+                    "proveedor_taller": proveedor,
+                    "descripcion": f"[PROGRAMADO] {descripcion_prog}"
                 }
                 
-                exito, msg = insertar_registro("programacion_pm", nuevo_pm)
+                exito, msg = insertar_registro("mantenimientos", nuevo_mantenimiento_prog)
                 if exito:
-                    st.success(f"✅ Mantenimiento `{tipo_pm}` programado con éxito para el equipo `{codigo_sel}`.")
+                    st.success(f"✅ Programación para el equipo `{codigo_sel}` guardada con éxito en 'mantenimientos'.")
                     st.rerun()
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {msg}")
 
         st.divider()
-        st.subheader("📊 Mantenimientos Preventivos Programados")
+        st.subheader("📊 Mantenimientos Proyectados y Pendientes")
         
-        mantenimientos_prog = consultar_tabla("programacion_pm")
-        if mantenimientos_prog:
-            st.dataframe(pd.DataFrame(mantenimientos_prog), use_container_width=True)
+        if mantenimientos:
+            df_maint = pd.DataFrame(mantenimientos)
+            
+            # Filtrar mantenimientos preventivos o programados
+            cols_visibles = [c for c in ["id", "codigo_equipo", "nivel_pm", "fecha_ejecucion", "proximo_horometro", "proximo_kilometraje", "proveedor_taller", "descripcion"] if c in df_maint.columns]
+            st.dataframe(df_maint[cols_visibles], use_container_width=True)
         else:
-            st.info("Aún no se han agendado mantenimientos preventivos en la base de datos.")
+            st.info("Aún no hay mantenimientos ni proyecciones registradas en la tabla 'mantenimientos'.")
 
 # ==========================================
 # MÓDULO 4: HISTORIAL DE MANTENIMIENTOS & CONSUMO INTEGRADO
@@ -351,15 +329,10 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
     repuestos_cat = consultar_tabla("repuestos_cat")
     
     if not equipos:
-        st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
+        st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
-        
-        if "codigo_interno" in df_equipos.columns:
-            lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str))))
-        else:
-            col_alt = [c for c in df_equipos.columns if "codigo" in c or "placa" in c][0]
-            lista_codigos = sorted(list(set(df_equipos[col_alt].dropna().astype(str))))
+        lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
 
         opciones_repuestos = ["Sin repuesto adicional"]
         dict_repuestos = {}
@@ -438,15 +411,15 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID `{maint_id}`).")
                     
                     if maint_id:
-                        rep_id = dict_repuestos[repuesto_sel].get("id") if repuesto_sel in dict_repuestos else None
-                        
                         nuevo_detalle = {
                             "mantenimiento_id": maint_id,
-                            "repuesto_id": rep_id,  # <--- CORREGIDO: coincide con tu tabla
                             "cantidad": cant_usada,
                             "precio_unitario": costo_mo,
                             "costo_subtotal": subtotal_calc
                         }
+                        if repuesto_sel != "Sin repuesto adicional" and repuesto_sel in dict_repuestos:
+                            nuevo_detalle["repuesto_id"] = dict_repuestos[repuesto_sel].get("id")
+
                         exito_det, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
                         if exito_det:
                             st.success(f"✅ Detalle insertado correctamente en `mantenimiento_detalles`.")
@@ -457,7 +430,6 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     st.error(f"❌ Error al guardar cabecera en Supabase: {res_data}")
 
         st.divider()
-        
         tab_h1, tab_h2 = st.tabs(["📊 Historial de Mantenimientos", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
         
         with tab_h1:
@@ -473,38 +445,31 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                 st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
             else:
                 st.info("Aún no se han registrado repuestos en 'mantenimiento_detalles'.")
-                
+
 # ==========================================
 # MÓDULO 5: CATÁLOGO DE REPUESTOS
 # ==========================================
 elif modulo == "5. Catálogo de Repuestos":
     st.header("📦 Catálogo Maestro de Repuestos e Insumos (`repuestos_cat`)")
-    
     repuestos = consultar_tabla("repuestos_cat")
     
     if repuestos:
         df_rep = pd.DataFrame(repuestos)
-        
         k1, k2, k3 = st.columns(3)
         k1.metric("Total Repuestos en Catálogo", len(df_rep))
         k2.metric("Categorías Registradas", df_rep["categoria"].nunique() if "categoria" in df_rep.columns else 0)
         k3.metric("Ubicación Principal", "Almacén Central Mina")
-        
         st.divider()
 
     st.subheader("➕ Registrar Nuevo Repuesto en Catálogo")
-    
     with st.form("form_repuestos_cat", clear_on_submit=True):
         col_r1, col_r2, col_r3 = st.columns(3)
-        
         with col_r1:
             cod_repuesto = st.text_input("Código de Repuesto / SKU *")
             descripcion_rep = st.text_input("Descripción del Repuesto / Parte *")
-            
         with col_r2:
             categoria = st.selectbox("Categoría *", ["Filtros", "Lubricantes / Fluidos", "Sistema Eléctrico", "Neumáticos", "Motor", "Frenos / Suspensión", "Otros"])
             unidad = st.selectbox("Unidad de Medida *", ["Unidad", "Galón", "Juego / Kit", "Litro", "Metro", "Caja"])
-            
         with col_r3:
             precio_ref = st.number_input("Precio Referencial (USD / PEN)", min_value=0.0, step=1.0)
 
@@ -521,7 +486,6 @@ elif modulo == "5. Catálogo de Repuestos":
                     "unidad_medida": unidad,
                     "precio_referencial": precio_ref
                 }
-                
                 exito, msg = insertar_registro("repuestos_cat", nuevo_repuesto)
                 if exito:
                     st.success(f"✅ Repuesto `{cod_repuesto}` guardado con éxito en `repuestos_cat`.")
@@ -531,7 +495,6 @@ elif modulo == "5. Catálogo de Repuestos":
 
     st.divider()
     st.subheader("📋 Catálogo Maestro de Repuestos")
-    
     if repuestos:
         st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
     else:
