@@ -205,7 +205,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 km_rec = max(0.0, km_fin - km_init)
                 st.info(f"**Kilómetros Recorridos (Cálculo Visual):** `{km_rec:.1f} km`")
 
-            # Cálculo de Ratio Estimado del Turno
             if horas_trab > 0 and combustible > 0:
                 ratio_turno = combustible / horas_trab
                 st.caption(f"⛽ Ratio Estimado del Turno: **{ratio_turno:.2f} Gal/hrs**")
@@ -247,7 +246,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         partes_registrados = consultar_tabla("partes_diarios")
         if partes_registrados:
             df_partes_show = pd.DataFrame(partes_registrados)
-            # Calcular ratio en la vista
             if "combustible_galones" in df_partes_show.columns and "horometro_final" in df_partes_show.columns and "horometro_inicial" in df_partes_show.columns:
                 hrs = (df_partes_show["horometro_final"] - df_partes_show["horometro_inicial"]).clip(lower=0)
                 df_partes_show["Ratio (Gal/hr)"] = (df_partes_show["combustible_galones"] / hrs.replace(0, pd.NA)).round(2)
@@ -568,18 +566,21 @@ elif modulo == "6. Catálogo de Repuestos":
 # ==========================================
 elif modulo == "7. KPIs y Ratio de Combustible":
     st.header("⛽ Reporte y Análisis de Ratios de Combustible")
-    st.caption("Consolidado acumulado de combustible abastecido versus horas / kilómetros trabajados.")
+    st.caption("Consolidado acumulado de combustible abastecido versus horas / kilómetros trabajados por tipo de flota.")
 
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
 
-    if not partes:
-        st.info("Aún no hay suficientes registros en 'partes_diarios' para calcular los ratios de combustible.")
+    if not partes or not equipos:
+        st.info("Aún no hay suficientes registros en 'partes_diarios' o 'equipos' para calcular los ratios de combustible.")
     else:
         df_p = pd.DataFrame(partes)
-        df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+        df_eq = pd.DataFrame(equipos)
 
-        # Asegurar tipos numéricos
+        # Identificar columna tipo_flota en equipos
+        col_tipo_flota = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
+
+        # Asegurar tipos numéricos en partes diarios
         df_p["combustible_galones"] = pd.to_numeric(df_p["combustible_galones"], errors="coerce").fillna(0)
         df_p["horometro_final"] = pd.to_numeric(df_p["horometro_final"], errors="coerce").fillna(0)
         df_p["horometro_inicial"] = pd.to_numeric(df_p["horometro_inicial"], errors="coerce").fillna(0)
@@ -589,27 +590,31 @@ elif modulo == "7. KPIs y Ratio de Combustible":
         df_p["horas_trabajadas"] = (df_p["horometro_final"] - df_p["horometro_inicial"]).clip(lower=0)
         df_p["km_recorridos"] = (df_p["kilometro_final"] - df_p["kilometro_inicial"]).clip(lower=0)
 
-        # Agrupar datos por equipo
+        # Cruzar partes diarios con la tabla equipos para obtener el tipo_flota y unidad_medida
+        df_merged = df_p.merge(
+            df_eq[["codigo_interno", col_tipo_flota, "unidad_medida"]],
+            left_on="codigo_equipo",
+            right_on="codigo_interno",
+            how="left"
+        )
+
         resumen_combustible = []
 
-        for cod_eq, grp in df_p.groupby("codigo_equipo"):
+        for cod_eq, grp in df_merged.groupby("codigo_equipo"):
             total_gal = grp["combustible_galones"].sum()
             total_hrs = grp["horas_trabajadas"].sum()
             total_km = grp["km_recorridos"].sum()
 
-            # Obtener unidad de medida de la tabla equipos
-            um = "Horas"
-            if not df_eq.empty and "codigo_interno" in df_eq.columns and "unidad_medida" in df_eq.columns:
-                eq_match = df_eq[df_eq["codigo_interno"] == cod_eq]
-                if not eq_match.empty:
-                    um = eq_match["unidad_medida"].values[0]
+            tipo_flota_val = grp[col_tipo_flota].iloc[0] if col_tipo_flota in grp.columns else "Sin Tipo"
+            um = grp["unidad_medida"].iloc[0] if "unidad_medida" in grp.columns else "Horas"
 
             ratio_hrs = (total_gal / total_hrs) if total_hrs > 0 else 0.0
             ratio_km = (total_gal / total_km) if total_km > 0 else 0.0
 
             resumen_combustible.append({
                 "Código Equipo": cod_eq,
-                "Medición": um,
+                "Tipo de Flota": tipo_flota_val or "General",
+                "Medición": um or "Horas",
                 "Total Galones Abastecidos": round(total_gal, 1),
                 "Total Horas Operadas": round(total_hrs, 1),
                 "Total KM Recorridos": round(total_km, 1),
@@ -619,16 +624,35 @@ elif modulo == "7. KPIs y Ratio de Combustible":
 
         df_resumen_c = pd.DataFrame(resumen_combustible)
 
-        st.subheader("📊 Métrica General de Combustible de la Flota")
+        st.subheader("🔍 Filtro por Tipo de Flota")
+        tipos_disponibles = ["TODOS"] + sorted(list(df_resumen_c["Tipo de Flota"].dropna().unique()))
+        tipo_flota_sel = st.selectbox("Selecciona la categoría de flota a analizar:", tipos_disponibles)
+
+        if tipo_flota_sel != "TODOS":
+            df_filtrado = df_resumen_c[df_resumen_c["Tipo de Flota"] == tipo_flota_sel]
+        else:
+            df_filtrado = df_resumen_c
+
+        # Métricas generales por el Tipo de Flota Seleccionado
+        st.subheader(f"📊 Métricas Acumuladas: Flota {tipo_flota_sel}")
         k1, k2, k3 = st.columns(3)
-        k1.metric("Total Combustible Consumido", f"{df_resumen_c['Total Galones Abastecidos'].sum():,.1f} Gal")
-        k2.metric("Total Horas Trabajadas", f"{df_resumen_c['Total Horas Operadas'].sum():,.1f} hrs")
-        k3.metric("Ratio Promedio Flota", f"{(df_resumen_c['Total Galones Abastecidos'].sum() / max(1, df_resumen_c['Total Horas Operadas'].sum())):,.2f} Gal/hr")
+        total_gal_sel = df_filtrado['Total Galones Abastecidos'].sum()
+        total_hrs_sel = df_filtrado['Total Horas Operadas'].sum()
+        total_km_sel = df_filtrado['Total KM Recorridos'].sum()
+
+        ratio_promedio_hrs = (total_gal_sel / total_hrs_sel) if total_hrs_sel > 0 else 0.0
+
+        k1.metric("Total Galones Consumidos", f"{total_gal_sel:,.1f} Gal")
+        k2.metric("Total Horas Operadas", f"{total_hrs_sel:,.1f} hrs")
+        k3.metric("Ratio Promedio Categoría", f"{ratio_promedio_hrs:,.2f} Gal/hr")
 
         st.divider()
         st.subheader("📋 Consolidado por Equipo")
-        st.dataframe(df_resumen_c, use_container_width=True)
+        st.dataframe(df_filtrado, use_container_width=True)
 
         st.divider()
-        st.subheader("📈 Comparativa de Consumo por Equipo (Galones Abastecidos)")
-        st.bar_chart(data=df_resumen_c.set_index("Código Equipo")["Total Galones Abastecidos"])
+        st.subheader(f"📈 Comparativa de Consumo (Galones) - {tipo_flota_sel}")
+        if not df_filtrado.empty:
+            st.bar_chart(data=df_filtrado.set_index("Código Equipo")["Total Galones Abastecidos"])
+        else:
+            st.info("No hay datos para la categoría seleccionada.")
