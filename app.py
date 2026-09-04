@@ -59,17 +59,26 @@ def insertar_registro(nombre_tabla, datos):
     except Exception as e:
         return False, str(e)
 
+# Función universal para generar bytes de archivo Excel (.xlsx)
+def generar_excel_bytes(dataframe, nombre_hoja="Datos"):
+    buffer = io.BytesIO()
+    try:
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            dataframe.to_excel(writer, sheet_name=nombre_hoja, index=False)
+        return buffer.getvalue()
+    except Exception:
+        # Fallback de respaldo con separador punto y coma (;)
+        return dataframe.to_csv(index=False, sep=";").encode('utf-8-sig')
+
 # Conversor de URLs de Google Drive a URLs Directas de Imagen
 def convertir_url_drive_a_directa(url):
     if not url or pd.isna(url) or not isinstance(url, str):
         return None
     url = url.strip()
     
-    # Si es un enlace de carpeta, retornar original para botón de apertura externa
     if "/drive/folders/" in url:
         return url
         
-    # Extraer ID del archivo individual de Google Drive
     patron_id = r'(?:/file/d/|id=)([\w-]+)'
     coincidencia = re.search(patron_id, url)
     
@@ -184,7 +193,17 @@ if modulo == "1. Lista Maestra & Acreditación":
         else:
             clave_col = [k for k, v in nombres_amigables.items() if v == doc_seleccionado][0]
             cols_mostrar = columnas_base + [clave_col, f"estado_{clave_col}"]
-        st.dataframe(df[cols_mostrar], use_container_width=True)
+        
+        df_flota_export = df[cols_mostrar]
+        st.dataframe(df_flota_export, use_container_width=True)
+
+        st.download_button(
+            label="📥 Descargar Lista Maestra en Excel (.xlsx)",
+            data=generar_excel_bytes(df_flota_export, "Lista_Maestra"),
+            file_name=f"Lista_Maestra_Flota_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
     else:
         st.info("No hay datos registrados en la flota aún.")
 
@@ -287,6 +306,14 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 df_partes_show["Ratio (Gal/hr)"] = ratio_series.astype(float).round(2)
                 
             st.dataframe(df_partes_show, use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Partes Diarios en Excel (.xlsx)",
+                data=generar_excel_bytes(df_partes_show, "Partes_Diarios"),
+                file_name=f"Partes_Diarios_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         else:
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
@@ -377,6 +404,14 @@ elif modulo == "3. Programación Semanal PM":
         st.subheader("🔍 Proyección Completa de la Flota (Horómetros vs. Kilometrajes)")
         st.dataframe(df_prog, use_container_width=True)
 
+        st.download_button(
+            label="📥 Descargar Programación Semanal en Excel (.xlsx)",
+            data=generar_excel_bytes(df_prog, "Programacion_Semanal"),
+            file_name=f"Programacion_PM_Semana_{inicio_semana.strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
 # ==========================================
 # MÓDULO 4: HISTORIAL DE MANTENIMIENTOS
 # ==========================================
@@ -451,7 +486,16 @@ elif modulo == "4. Historial de Mantenimientos":
         st.subheader("📊 Historial de Mantenimientos Registrados")
         historial_maint = consultar_tabla("mantenimientos")
         if historial_maint:
-            st.dataframe(pd.DataFrame(historial_maint), use_container_width=True)
+            df_hist_maint = pd.DataFrame(historial_maint)
+            st.dataframe(df_hist_maint, use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Historial de Mantenimientos en Excel (.xlsx)",
+                data=generar_excel_bytes(df_hist_maint, "Historial_Mantenimientos"),
+                file_name=f"Historial_Mantenimientos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         else:
             st.info("Aún no hay intervenciones registradas en 'mantenimientos'.")
 
@@ -524,7 +568,16 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
         st.subheader("📊 Historial de Detalles y Consumo de Repuestos")
         detalles_registrados = consultar_tabla("mantenimiento_detalles")
         if detalles_registrados:
-            st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
+            df_det_show = pd.DataFrame(detalles_registrados)
+            st.dataframe(df_det_show, use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Consumo de Repuestos en Excel (.xlsx)",
+                data=generar_excel_bytes(df_det_show, "Consumo_Repuestos"),
+                file_name=f"Consumo_Repuestos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         else:
             st.info("Aún no se han registrado detalles en 'mantenimiento_detalles'.")
 
@@ -592,7 +645,16 @@ elif modulo == "6. Catálogo de Repuestos":
     st.divider()
     st.subheader("📋 Catálogo Maestro de Repuestos")
     if repuestos:
-        st.dataframe(pd.DataFrame(repuestos), use_container_width=True)
+        df_cat_show = pd.DataFrame(repuestos)
+        st.dataframe(df_cat_show, use_container_width=True)
+
+        st.download_button(
+            label="📥 Descargar Catálogo de Repuestos en Excel (.xlsx)",
+            data=generar_excel_bytes(df_cat_show, "Catalogo_Repuestos"),
+            file_name=f"Catalogo_Repuestos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
     else:
         st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
 
@@ -679,6 +741,14 @@ elif modulo == "7. KPIs y Ratio de Combustible":
         st.divider()
         st.subheader("📋 Consolidado por Equipo")
         st.dataframe(df_filtrado, use_container_width=True)
+
+        st.download_button(
+            label="📥 Descargar Ratios de Combustible en Excel (.xlsx)",
+            data=generar_excel_bytes(df_filtrado, "Ratios_Combustible"),
+            file_name=f"Ratios_Combustible_{tipo_flota_sel}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
         st.divider()
         st.subheader(f"📈 Comparativa de Consumo (Galones) - {tipo_flota_sel}")
@@ -771,6 +841,14 @@ elif modulo == "8. Disponibilidad Mecánica":
         st.subheader("📋 Matriz Semanal de Disponibilidad Mecánica por Equipo")
         st.dataframe(df_disp_fil, use_container_width=True)
 
+        st.download_button(
+            label="📥 Descargar Disponibilidad Mecánica en Excel (.xlsx)",
+            data=generar_excel_bytes(df_disp_fil, "Disponibilidad_Mecanica"),
+            file_name=f"Disponibilidad_Mecanica_{frente_sel}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
         st.divider()
         st.subheader(f"📈 Gráfico de Disponibilidad Mecánica (%) por Equipo - {frente_sel}")
         if not df_disp_fil.empty:
@@ -828,7 +906,7 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 
         st.divider()
 
-        # Generación de Excel Nativo (.xlsx) con captura segura de fallos
+        # Generación de Excel Nativo Multipestaña para Módulo 9
         buffer_excel = io.BytesIO()
         usar_excel_nativo = False
 
@@ -845,7 +923,7 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 
         if usar_excel_nativo:
             st.download_button(
-                label="📊 Descargar Reporte en Excel Nativo (.xlsx)",
+                label="📊 Descargar Reporte Completo en Excel Nativo (.xlsx)",
                 data=buffer_excel.getvalue(),
                 file_name=f"Reporte_Mantenimientos_Qorilazo_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
