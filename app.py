@@ -460,7 +460,7 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
                 costo_mo = st.number_input("Costo de Mano de Obra / P.U. (PEN / USD)", min_value=0.0, step=1.0, value=0.0)
                 
             subtotal_calc = cant_usada * costo_mo
-            st.info(f"**Costo Subtotal Calculado (Cantidad × P.U.):** `{subtotal_calc:.2f}`")
+            st.info(f"**Costo Subtotal Visual (Cantidad × P.U.):** `{subtotal_calc:.2f}` (Se autocalcula en Supabase)")
             
             guardar_detalle = st.form_submit_button("💾 Guardar Detalle en Supabase", use_container_width=True)
             
@@ -468,11 +468,11 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
                 # Extraer el ID real del Mantenimiento desde el label seleccionado
                 maint_id = int(maint_sel.split(" | ")[0].replace("ID: ", "").strip())
                 
+                # Omitimos 'costo_subtotal' porque la columna se autocalcula en la base de datos
                 nuevo_detalle = {
                     "mantenimiento_id": maint_id,
                     "cantidad": cant_usada,
-                    "precio_unitario": costo_mo,
-                    "costo_subtotal": subtotal_calc
+                    "precio_unitario": costo_mo
                 }
                 
                 # Asignar repuesto_id si seleccionó un repuesto del catálogo
@@ -493,7 +493,6 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
             st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
         else:
             st.info("Aún no se han registrado detalles en 'mantenimiento_detalles'.")
-
 # ==========================================
 # MÓDULO 6: CATÁLOGO DE REPUESTOS
 # ==========================================
