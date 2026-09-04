@@ -413,7 +413,6 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
             st.info(f"**Costo Subtotal (Cantidad × M.O.):** `{subtotal_calc:.2f}`")
 
             guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento & Consumo en Supabase", use_container_width=True)
-            
             if guardar_maint:
                 nuevo_mantenimiento = {
                     "codigo_equipo": codigo_sel,
@@ -438,20 +437,23 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID `{maint_id}`).")
                     
                     if maint_id:
-                        rep_id = dict_repuestos[repuesto_sel].get("id") if repuesto_sel in dict_repuestos else None
-                        
+                        # Estructura limpia para evitar fallas de Llave Foránea (FK)
                         nuevo_detalle = {
                             "mantenimiento_id": maint_id,
-                            "repuesto_id": rep_id,  # <--- CORREGIDO: coincide con tu tabla
                             "cantidad": cant_usada,
                             "precio_unitario": costo_mo,
                             "costo_subtotal": subtotal_calc
                         }
+                        
+                        # Solo si se seleccionó un repuesto real del catálogo, incluimos 'repuesto_id'
+                        if repuesto_sel != "Sin repuesto adicional" and repuesto_sel in dict_repuestos:
+                            nuevo_detalle["repuesto_id"] = dict_repuestos[repuesto_sel].get("id")
+
                         exito_det, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
                         if exito_det:
                             st.success(f"✅ Detalle insertado correctamente en `mantenimiento_detalles`.")
                         else:
-                            st.error(f"❌ Error al insertar detalle: {res_det}")
+                            st.error(f"❌ Error al insertar detalle en Supabase: {res_det}")
                     st.rerun()
                 else:
                     st.error(f"❌ Error al guardar cabecera en Supabase: {res_data}")
