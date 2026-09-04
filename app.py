@@ -85,8 +85,9 @@ modulo = st.sidebar.radio(
         "1. Lista Maestra & Acreditación",
         "2. Registro Diario de Partes y Tareo",
         "3. Programación Semanal PM",
-        "4. Historial de Mantenimientos & Consumo",
-        "5. Catálogo de Repuestos"
+        "4. Historial de Mantenimientos",
+        "5. Registro de Detalles y Consumo de Repuestos",
+        "6. Catálogo de Repuestos"
     ]
 )
 
@@ -338,13 +339,12 @@ elif modulo == "3. Programación Semanal PM":
         st.dataframe(df_prog, use_container_width=True)
 
 # ==========================================
-# MÓDULO 4: HISTORIAL DE MANTENIMIENTOS & CONSUMO INTEGRADO
+# MÓDULO 4: HISTORIAL DE MANTENIMIENTOS
 # ==========================================
-elif modulo == "4. Historial de Mantenimientos & Consumo":
-    st.header("🔧 Registro de Mantenimientos y Consumo de Repuestos")
+elif modulo == "4. Historial de Mantenimientos":
+    st.header("🔧 Registro de Mantenimientos Ejecutados")
     
     equipos = consultar_tabla("equipos")
-    repuestos_cat = consultar_tabla("repuestos_cat")
     
     if not equipos:
         st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
@@ -352,18 +352,9 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
         df_equipos = pd.DataFrame(equipos)
         lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
 
-        opciones_repuestos = ["Sin repuesto adicional"]
-        dict_repuestos = {}
-        if repuestos_cat:
-            for r in repuestos_cat:
-                label = f"ID: {r.get('id')} | {r.get('codigo_repuesto')} - {r.get('descripcion')}"
-                opciones_repuestos.append(label)
-                dict_repuestos[label] = r
-
-        st.subheader("📝 Registrar Servicio Mecánico, Repuestos y Mano de Obra")
+        st.subheader("📝 Registrar Servicio Mecánico (`mantenimientos`)")
         
-        with st.form("form_mantenimientos_integrado", clear_on_submit=True):
-            st.markdown("##### 📍 Datos Cabecera del Mantenimiento (`mantenimientos`)")
+        with st.form("form_mantenimientos", clear_on_submit=True):
             col_m1, col_m2, col_m3 = st.columns(3)
             
             with col_m1:
@@ -389,21 +380,7 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
             descripcion = st.text_area("Descripción de Trabajos Realizados")
             foto_url = st.text_input("URL / Enlace de Evidencia Fotográfica (Opcional)")
 
-            st.divider()
-            st.markdown("##### 🛠️ Detalle de Repuesto y Mano de Obra (`mantenimiento_detalles`)")
-            
-            col_r1, col_r2, col_r3 = st.columns(3)
-            with col_r1:
-                repuesto_sel = st.selectbox("Repuesto Utilizado (Opcional)", opciones_repuestos)
-            with col_r2:
-                cant_usada = st.number_input("Cantidad Utilizada", min_value=1, step=1, value=1)
-            with col_r3:
-                costo_mo = st.number_input("Costo de Mano de Obra / P.U. (M.O.)", min_value=0.0, step=1.0, value=0.0)
-
-            subtotal_calc = cant_usada * costo_mo
-            st.info(f"**Costo Subtotal (Cantidad × M.O.):** `{subtotal_calc:.2f}`")
-
-            guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento & Consumo en Supabase", use_container_width=True)
+            guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento en Supabase", use_container_width=True)
             
             if guardar_maint:
                 nuevo_mantenimiento = {
@@ -426,48 +403,101 @@ elif modulo == "4. Historial de Mantenimientos & Consumo":
                     if isinstance(res_data, list) and len(res_data) > 0:
                         maint_id = res_data[0].get("id")
                     
-                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID `{maint_id}`).")
-                    
-                    if maint_id:
-                        nuevo_detalle = {
-                            "mantenimiento_id": maint_id,
-                            "cantidad": cant_usada,
-                            "precio_unitario": costo_mo,
-                            "costo_subtotal": subtotal_calc
-                        }
-                        if repuesto_sel != "Sin repuesto adicional" and repuesto_sel in dict_repuestos:
-                            nuevo_detalle["repuesto_id"] = dict_repuestos[repuesto_sel].get("id")
-
-                        exito_det, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
-                        if exito_det:
-                            st.success(f"✅ Detalle insertado correctamente en `mantenimiento_detalles`.")
-                        else:
-                            st.error(f"❌ Error al insertar detalle: {res_det}")
+                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID Generado: `{maint_id}`).")
                     st.rerun()
                 else:
-                    st.error(f"❌ Error al guardar cabecera en Supabase: {res_data}")
+                    st.error(f"❌ Error al guardar en Supabase: {res_data}")
 
         st.divider()
-        tab_h1, tab_h2 = st.tabs(["📊 Historial de Mantenimientos", "🛠️ Detalle de Repuestos Usados (mantenimiento_detalles)"])
+        st.subheader("📊 Historial de Mantenimientos Registrados")
+        historial_maint = consultar_tabla("mantenimientos")
+        if historial_maint:
+            st.dataframe(pd.DataFrame(historial_maint), use_container_width=True)
+        else:
+            st.info("Aún no hay intervenciones registradas en 'mantenimientos'.")
+
+# ==========================================
+# MÓDULO 5: REGISTRO DE DETALLES Y CONSUMO DE REPUESTOS (DEDICADO)
+# ==========================================
+elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
+    st.header("🛠️ Registro de Detalles y Consumo de Repuestos (`mantenimiento_detalles`)")
+    
+    mantenimientos = consultar_tabla("mantenimientos")
+    repuestos_cat = consultar_tabla("repuestos_cat")
+    
+    if not mantenimientos:
+        st.warning("⚠️ No se encontraron mantenimientos en la tabla 'mantenimientos'. Registre primero un servicio en el Módulo 4.")
+    else:
+        df_maint = pd.DataFrame(mantenimientos)
+        df_rep = pd.DataFrame(repuestos_cat) if repuestos_cat else pd.DataFrame()
+
+        # Opciones para selector de Mantenimiento
+        opciones_maint = [
+            f"ID: {r.get('id')} | Equipo: {r.get('codigo_equipo')} | Fecha: {r.get('fecha_ejecucion')} | {r.get('tipo_mantenimiento')}"
+            for _, r in df_maint.iterrows()
+        ]
         
-        with tab_h1:
-            historial_maint = consultar_tabla("mantenimientos")
-            if historial_maint:
-                st.dataframe(pd.DataFrame(historial_maint), use_container_width=True)
-            else:
-                st.info("Aún no hay intervenciones registradas en 'mantenimientos'.")
+        # Opciones para selector de Repuesto desde 'repuestos_cat'
+        opciones_rep = ["Sin repuesto / Solo Mano de Obra"]
+        dict_rep = {}
+        if not df_rep.empty:
+            for _, r in df_rep.iterrows():
+                label = f"ID: {r.get('id')} | Code: {r.get('codigo_repuesto')} - {r.get('descripcion')}"
+                opciones_rep.append(label)
+                dict_rep[label] = r
 
-        with tab_h2:
-            detalles_registrados = consultar_tabla("mantenimiento_detalles")
-            if detalles_registrados:
-                st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
-            else:
-                st.info("Aún no se han registrado repuestos en 'mantenimiento_detalles'.")
+        st.subheader("📝 Asignar Repuesto y Costo al Mantenimiento")
+        
+        with st.form("form_mantenimiento_detalles_dedicado", clear_on_submit=True):
+            col_d1, col_d2 = st.columns(2)
+            
+            with col_d1:
+                maint_sel = st.selectbox("Seleccionar Mantenimiento Ejecutado *", opciones_maint)
+                rep_sel = st.selectbox("Seleccionar Repuesto Utilizado", opciones_rep)
+                
+            with col_d2:
+                cant_usada = st.number_input("Cantidad Utilizada *", min_value=1, step=1, value=1)
+                costo_mo = st.number_input("Costo de Mano de Obra / P.U. (PEN / USD)", min_value=0.0, step=1.0, value=0.0)
+                
+            subtotal_calc = cant_usada * costo_mo
+            st.info(f"**Costo Subtotal Calculado (Cantidad × P.U.):** `{subtotal_calc:.2f}`")
+            
+            guardar_detalle = st.form_submit_button("💾 Guardar Detalle en Supabase", use_container_width=True)
+            
+            if guardar_detalle:
+                # Extraer el ID real del Mantenimiento desde el label seleccionado
+                maint_id = int(maint_sel.split(" | ")[0].replace("ID: ", "").strip())
+                
+                nuevo_detalle = {
+                    "mantenimiento_id": maint_id,
+                    "cantidad": cant_usada,
+                    "precio_unitario": costo_mo,
+                    "costo_subtotal": subtotal_calc
+                }
+                
+                # Asignar repuesto_id si seleccionó un repuesto del catálogo
+                if rep_sel != "Sin repuesto / Solo Mano de Obra" and rep_sel in dict_rep:
+                    nuevo_detalle["repuesto_id"] = dict_rep[rep_sel].get("id")
+
+                exito, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
+                if exito:
+                    st.success(f"✅ Detalle guardado correctamente en `mantenimiento_detalles` para el Mantenimiento ID `{maint_id}`.")
+                    st.rerun()
+                else:
+                    st.error(f"❌ Error al guardar en Supabase: {res_det}")
+
+        st.divider()
+        st.subheader("📊 Historial de Detalles y Consumo de Repuestos")
+        detalles_registrados = consultar_tabla("mantenimiento_detalles")
+        if detalles_registrados:
+            st.dataframe(pd.DataFrame(detalles_registrados), use_container_width=True)
+        else:
+            st.info("Aún no se han registrado detalles en 'mantenimiento_detalles'.")
 
 # ==========================================
-# MÓDULO 5: CATÁLOGO DE REPUESTOS
+# MÓDULO 6: CATÁLOGO DE REPUESTOS
 # ==========================================
-elif modulo == "5. Catálogo de Repuestos":
+elif modulo == "6. Catálogo de Repuestos":
     st.header("📦 Catálogo Maestro de Repuestos e Insumos (`repuestos_cat`)")
     repuestos = consultar_tabla("repuestos_cat")
     
