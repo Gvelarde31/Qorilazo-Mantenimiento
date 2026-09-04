@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import io
+import re
 
 # Configuración de la página
 st.set_page_config(
@@ -57,6 +58,25 @@ def insertar_registro(nombre_tabla, datos):
             return False, response.text
     except Exception as e:
         return False, str(e)
+
+# Conversor de URLs de Google Drive a URLs Directas de Imagen
+def convertir_url_drive_a_directa(url):
+    if not url or pd.isna(url) or not isinstance(url, str):
+        return None
+    url = url.strip()
+    
+    # Si es un enlace de carpeta, retornar original para botón de apertura externa
+    if "/drive/folders/" in url:
+        return url
+        
+    # Extraer ID del archivo individual de Google Drive
+    patron_id = r'(?:/file/d/|id=)([\w-]+)'
+    coincidencia = re.search(patron_id, url)
+    
+    if coincidencia:
+        file_id = coincidencia.group(1)
+        return f"https://lh3.googleusercontent.com/d/{file_id}"
+    return url
 
 # Evaluación de Semáforo para Módulo 1
 def evaluar_fecha(fecha_str):
@@ -271,7 +291,7 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             st.info("Aún no se han registrado partes diarios en la base de datos.")
 
 # ==========================================
-# MÓDULO 3: PROGRAMACIÓN SEMANAL PM (SÁBADO A VIERNES)
+# MÓDULO 3: PROGRAMACIÓN SEMANAL PM
 # ==========================================
 elif modulo == "3. Programación Semanal PM":
     st.header("📅 Programación Semanal de Mantenimiento Preventivo (PM)")
@@ -668,7 +688,7 @@ elif modulo == "7. KPIs y Ratio de Combustible":
             st.info("No hay datos para la categoría seleccionada.")
 
 # ==========================================
-# MÓDULO 8: DISPONIBILIDAD MECÁNICA POR EQUIPO Y FRENTE (SÁBADO A VIERNES - META 90%)
+# MÓDULO 8: DISPONIBILIDAD MECÁNICA POR EQUIPO Y FRENTE
 # ==========================================
 elif modulo == "8. Disponibilidad Mecánica":
     st.header("📈 Disponibilidad Mecánica de la Flota (%)")
@@ -761,7 +781,7 @@ elif modulo == "8. Disponibilidad Mecánica":
 # ==========================================
 elif modulo == "9. Reporte Exportable & Evidencias A4":
     st.header("📄 Reporte Exportable de Mantenimientos & Dossier de Evidencias A4")
-    st.caption("Consolidado con asignación manual de OT y estado, exportación a Excel en columnas independientes.")
+    st.caption("Consolidado con asignación manual de OT y estado, listo para exportación a Excel y vista previa A4.")
 
     mantenimientos = consultar_tabla("mantenimientos")
     equipos = consultar_tabla("equipos")
@@ -808,18 +828,22 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 
         st.divider()
 
-        # Generación de archivo Excel (.xlsx) nativo con pestañas
+        # Generación de Excel Nativo (.xlsx) con captura segura de fallos
         buffer_excel = io.BytesIO()
+        usar_excel_nativo = False
+
         try:
             with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
-                # Hoja 1: Resumen de Mantenimiento y OTs
                 cols_h1 = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado"] if c in df_editado.columns]
-                df_editado[cols_h1].to_excel(writer, sheet_name="Resumen_Mantenimientos", index=False)
+                df_editado[cols_h1].to_excel(writer, sheet_name="Mantenimientos_OT", index=False)
 
-                # Hoja 2: Evidencias Fotográficas
                 cols_h2 = [c for c in ["OT", "codigo_interno", "nivel_pm", "foto_evidencia_url"] if c in df_editado.columns]
-                df_editado[cols_h2].to_excel(writer, sheet_name="Mapeo_Evidencias", index=False)
+                df_editado[cols_h2].to_excel(writer, sheet_name="Evidencias_Fotograficas", index=False)
+            usar_excel_nativo = True
+        except Exception:
+            usar_excel_nativo = False
 
+        if usar_excel_nativo:
             st.download_button(
                 label="📊 Descargar Reporte en Excel Nativo (.xlsx)",
                 data=buffer_excel.getvalue(),
@@ -827,8 +851,7 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-        except Exception:
-            # Opción alternativa formateada con punto y coma (;) para Excel regional en español
+        else:
             cols_csv = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"] if c in df_editado.columns]
             csv_data = df_editado[cols_csv].to_csv(index=False, sep=";").encode('utf-8-sig')
 
@@ -842,9 +865,9 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 
         st.divider()
         st.subheader("🖼️ Vista Previa Formato A4 - Dossier de Evidencias (2 Fotos por Línea)")
-        st.caption("Formato optimizado para impresión A4 o generación PDF desde el navegador.")
+        st.caption("Formato optimizado para visualización y generación de reportes fotográficos.")
 
-        df_fotos = df_editado[df_editado["foto_evidencia_url"].notna() & (df_editado["foto_evidencia_url"].str.strip() != "")]
+        df_fotos = df_editado[df_editado["foto_evidencia_url"].notna() & (df_editado["foto_evidencia_url"].astype(str).str.strip() != "")].copy()
 
         if df_fotos.empty:
             st.info("No se han adjuntado URLs de fotografía en las intervenciones registradas.")
@@ -855,11 +878,31 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                 
                 with col_f1:
                     item1 = registros_fotos[i]
-                    st.image(item1["foto_evidencia_url"], caption=f"OT: {item1['OT']} | Equipo: {item1['codigo_interno']} ({item1['placa']}) | {item1['nivel_pm']}", use_container_width=True)
+                    raw_url1 = str(item1["foto_evidencia_url"]).strip()
+                    direct_url1 = convertir_url_drive_a_directa(raw_url1)
+                    
+                    st.markdown(f"**OT: {item1['OT']}** | `{item1['codigo_interno']}` ({item1['placa']}) - {item1['nivel_pm']}")
+                    try:
+                        if "/drive/folders/" in raw_url1:
+                            st.link_button("📁 Abrir Carpeta de Evidencias (Google Drive)", raw_url1, use_container_width=True)
+                        else:
+                            st.image(direct_url1, use_container_width=True)
+                    except Exception:
+                        st.link_button("🔗 Abrir Foto en Google Drive", raw_url1, use_container_width=True)
                 
                 if i + 1 < len(registros_fotos):
                     with col_f2:
                         item2 = registros_fotos[i+1]
-                        st.image(item2["foto_evidencia_url"], caption=f"OT: {item2['OT']} | Equipo: {item2['codigo_interno']} ({item2['placa']}) | {item2['nivel_pm']}", use_container_width=True)
+                        raw_url2 = str(item2["foto_evidencia_url"]).strip()
+                        direct_url2 = convertir_url_drive_a_directa(raw_url2)
+                        
+                        st.markdown(f"**OT: {item2['OT']}** | `{item2['codigo_interno']}` ({item2['placa']}) - {item2['nivel_pm']}")
+                        try:
+                            if "/drive/folders/" in raw_url2:
+                                st.link_button("📁 Abrir Carpeta de Evidencias (Google Drive)", raw_url2, use_container_width=True)
+                            else:
+                                st.image(direct_url2, use_container_width=True)
+                        except Exception:
+                            st.link_button("🔗 Abrir Foto en Google Drive", raw_url2, use_container_width=True)
                 
                 st.write("---")
