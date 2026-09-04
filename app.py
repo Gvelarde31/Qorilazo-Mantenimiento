@@ -80,7 +80,6 @@ def evaluar_fecha(fecha_str):
 
 # Función auxiliar para calcular rango semanal (Sábado a Viernes)
 def obtener_rango_semana_sabado_viernes(fecha_ref):
-    # En Python: Lunes=0, Martes=1, Miércoles=2, Jueves=3, Viernes=4, Sábado=5, Domingo=6
     dias_desde_sabado = (fecha_ref.weekday() - 5) % 7
     inicio_sabado = fecha_ref - timedelta(days=dias_desde_sabado)
     fin_viernes = inicio_sabado + timedelta(days=6)
@@ -667,16 +666,16 @@ elif modulo == "7. KPIs y Ratio de Combustible":
             st.info("No hay datos para la categoría seleccionada.")
 
 # ==========================================
-# MÓDULO 8: DISPONIBILIDAD MECÁNICA POR EQUIPO Y FRENTE (SÁBADO A VIERNES)
+# MÓDULO 8: DISPONIBILIDAD MECÁNICA POR EQUIPO Y FRENTE (SÁBADO A VIERNES - META 90%)
 # ==========================================
 elif modulo == "8. Disponibilidad Mecánica":
     st.header("📈 Disponibilidad Mecánica de la Flota (%)")
-    st.caption("Cálculo del porcentaje de operación de los equipos en la semana activa (Sábado a Viernes).")
+    st.caption("Cálculo del porcentaje de operación vs. requerimiento mínimo del contrato (Meta: 90.0%).")
 
     hoy = datetime.now().date()
     inicio_semana, fin_semana = obtener_rango_semana_sabado_viernes(hoy)
 
-    st.info(f"📆 **Semana Evaluada:** Desde **Sábado {inicio_semana.strftime('%d/%m/%Y')}** hasta **Viernes {fin_semana.strftime('%d/%m/%Y')}** (7 días base)")
+    st.info(f"📆 **Semana Evaluada:** Desde **Sábado {inicio_semana.strftime('%d/%m/%Y')}** hasta **Viernes {fin_semana.strftime('%d/%m/%Y')}** (7 días base) | **🎯 Meta Contractual: 90.0%**")
 
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
@@ -712,12 +711,11 @@ elif modulo == "8. Disponibilidad Mecánica":
             dias_inop = 7 - dias_op
             porcentaje_disp = round((dias_op / 7.0) * 100, 1)
 
-            if porcentaje_disp >= 85.0:
-                estado_disp = "🟢 ALTA DISPONIBILIDAD"
-            elif 50.0 <= porcentaje_disp < 85.0:
-                estado_disp = "🟡 DISPONIBILIDAD MEDIA"
+            # Clasificación binaria ajustada estrictamente a la meta del 90%
+            if porcentaje_disp >= 90.0:
+                estado_disp = "🟢 DENTRO DE CONTRATO (≥90%)"
             else:
-                estado_disp = "🔴 CRÍTICO / INOPERATIVO"
+                estado_disp = "🔴 INCUMPLIMIENTO CRÍTICO (<90%)"
 
             disp_lista.append({
                 "Código Equipo": cod,
@@ -725,7 +723,7 @@ elif modulo == "8. Disponibilidad Mecánica":
                 "Días Operativos": dias_op,
                 "Días Inoperativos": dias_inop,
                 "Disponibilidad (%)": porcentaje_disp,
-                "Estado": estado_disp
+                "Estado Contrato": estado_disp
             })
 
         df_disp = pd.DataFrame(disp_lista)
@@ -739,13 +737,15 @@ elif modulo == "8. Disponibilidad Mecánica":
         else:
             df_disp_fil = df_disp
 
-        st.subheader(f"📊 Resumen de Disponibilidad ({frente_sel})")
+        # Métricas ajustadas a los 2 parámetros del contrato
+        st.subheader(f"📊 Resumen SLA y Cumplimiento Contractual ({frente_sel})")
         m1, m2, k_prom = st.columns(3)
         prom_disp = df_disp_fil["Disponibilidad (%)"].mean() if not df_disp_fil.empty else 0.0
+        cumplen_contrato = len(df_disp_fil[df_disp_fil["Disponibilidad (%)"] >= 90.0])
 
         m1.metric("Equipos Evaluados", len(df_disp_fil))
-        m2.metric("Equipos Alta Disponibilidad (≥85%)", len(df_disp_fil[df_disp_fil["Disponibilidad (%)"] >= 85.0]))
-        k_prom.metric("Disponibilidad Mecánica Promedio", f"{prom_disp:.1f} %")
+        m2.metric("Cumplen Contrato (≥90%)", f"{cumplen_contrato} equipos", delta=f"{((cumplen_contrato/max(1, len(df_disp_fil)))*100):.1f}% cumplimiento")
+        k_prom.metric("Disponibilidad Promedio", f"{prom_disp:.1f}%", delta=f"{prom_disp - 90.0:.1f}% vs Meta (90%)")
 
         st.divider()
         st.subheader("📋 Matriz Semanal de Disponibilidad Mecánica por Equipo")
