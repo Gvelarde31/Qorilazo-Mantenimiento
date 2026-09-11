@@ -151,7 +151,6 @@ if modulo == "1. Lista Maestra & Acreditación":
             "fecha_venc_gps": "GPS", "fecha_venc_tarjeta_mercancias": "Tarjeta Mercancías",
             "fecha_venc_cert_operatividad": "Certif. Operatividad", "fecha_venc_cert_inspección": "Certif. Inspección"
         }
-
         resumen_alertas = []
         for col in cols_monitoreadas:
             if col in df.columns:
@@ -165,7 +164,6 @@ if modulo == "1. Lista Maestra & Acreditación":
                     "🟡 Alerta (16-31d)": colores.count("AMARILLO"),
                     "🟢 Vigente (≥32d)": colores.count("VERDE")
                 })
-
         df_resumen = pd.DataFrame(resumen_alertas)
         st.subheader("🚨 Resumen Rápido de Estado por Documento / Permiso")
         cols_grid = st.columns(4)
@@ -180,7 +178,6 @@ if modulo == "1. Lista Maestra & Acreditación":
                 if not alerta_texto:
                     alerta_texto = "🟢 0 Alertas"
                 st.metric(label=f"📌 {row['Documento / Permiso']}", value=alerta_texto)
-
         st.divider()
         st.subheader("🔍 Filtro de Flota por Permiso")
         doc_seleccionado = st.selectbox(
@@ -196,7 +193,6 @@ if modulo == "1. Lista Maestra & Acreditación":
         
         df_flota_export = df[cols_mostrar]
         st.dataframe(df_flota_export, use_container_width=True)
-
         st.download_button(
             label="📥 Descargar Lista Maestra en Excel (.xlsx)",
             data=generar_excel_bytes(df_flota_export, "Lista_Maestra"),
@@ -218,7 +214,10 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
-        lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
+        
+        # Mapeo usando 'placa' preferentemente
+        col_placa = "placa" if "placa" in df_equipos.columns else "codigo_interno"
+        lista_placas = sorted(list(set(df_equipos[col_placa].dropna().astype(str)))) if col_placa in df_equipos.columns else []
         
         st.subheader("📋 Formulario de Ingreso de Parte Diario")
         
@@ -227,7 +226,7 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             col_1, col_2, col_3 = st.columns(3)
             
             with col_1:
-                codigo_sel = st.selectbox("Código Interno del Equipo *", lista_codigos)
+                placa_sel = st.selectbox("Placa del Equipo *", lista_placas)
                 fecha_parte = st.date_input("Fecha del Parte *", datetime.now().date())
             with col_2:
                 turno = st.selectbox("Turno *", ["Día", "Noche"])
@@ -235,7 +234,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
             with col_3:
                 actividad = st.text_input("Actividad Realizada")
                 combustible = st.number_input("Combustible Abastecido (Galones)", min_value=0.0, step=0.5)
-
             st.divider()
             st.markdown("##### ⏱️ Lectura de Horómetros y Kilometraje")
             col_h1, col_h2 = st.columns(2)
@@ -246,18 +244,15 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 horo_fin = st.number_input("Horómetro Final", min_value=0.0, step=0.1)
                 horas_trab = max(0.0, horo_fin - horo_init)
                 st.info(f"**Horas Trabajadas (Cálculo Visual):** `{horas_trab:.1f} hrs`")
-
             with col_h2:
                 st.caption(" 🛣️ Odómetro (Kilómetros)")
                 km_init = st.number_input("Kilómetro Inicial", min_value=0.0, step=1.0)
                 km_fin = st.number_input("Kilómetro Final", min_value=0.0, step=1.0)
                 km_rec = max(0.0, km_fin - km_init)
                 st.info(f"**Kilómetros Recorridos (Cálculo Visual):** `{km_rec:.1f} km`")
-
             if horas_trab > 0 and combustible > 0:
                 ratio_turno = combustible / horas_trab
                 st.caption(f"⛽ Ratio Estimado del Turno: **{ratio_turno:.2f} Gal/hrs**")
-
             st.divider()
             observaciones = st.text_area("Observaciones / Novedades del Turno")
             
@@ -271,7 +266,7 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 else:
                     nuevo_parte = {
                         "fecha": str(fecha_parte),
-                        "codigo_equipo": codigo_sel,
+                        "codigo_equipo": placa_sel,  # Se guarda la placa seleccionada
                         "turno": turno,
                         "horometro_inicial": horo_init,
                         "horometro_final": horo_fin,
@@ -285,17 +280,20 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                     
                     exito, msg = insertar_registro("partes_diarios", nuevo_parte)
                     if exito:
-                        st.success(f"✅ Parte diario registrado con éxito para el equipo `{codigo_sel}`.")
+                        st.success(f"✅ Parte diario registrado con éxito para el equipo Placa `{placa_sel}`.")
                         st.rerun()
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {msg}")
-
         st.divider()
         st.subheader("📊 Historial de Partes Diarios Registrados")
         partes_registrados = consultar_tabla("partes_diarios")
         if partes_registrados:
             df_partes_show = pd.DataFrame(partes_registrados)
             
+            # Renombrar 'codigo_equipo' a 'Placa' para mayor claridad visual
+            if "codigo_equipo" in df_partes_show.columns:
+                df_partes_show.rename(columns={"codigo_equipo": "Placa Equipo"}, inplace=True)
+
             if "combustible_galones" in df_partes_show.columns and "horometro_final" in df_partes_show.columns and "horometro_inicial" in df_partes_show.columns:
                 combust = pd.to_numeric(df_partes_show["combustible_galones"], errors="coerce").fillna(0.0)
                 h_fin = pd.to_numeric(df_partes_show["horometro_final"], errors="coerce").fillna(0.0)
@@ -306,7 +304,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 df_partes_show["Ratio (Gal/hr)"] = ratio_series.astype(float).round(2)
                 
             st.dataframe(df_partes_show, use_container_width=True)
-
             st.download_button(
                 label="📥 Descargar Partes Diarios en Excel (.xlsx)",
                 data=generar_excel_bytes(df_partes_show, "Partes_Diarios"),
@@ -327,22 +324,19 @@ elif modulo == "3. Programación Semanal PM":
     inicio_semana, fin_semana = obtener_rango_semana_sabado_viernes(hoy)
     
     st.info(f"📆 **Semana Operativa Actual:** Desde **Sábado {inicio_semana.strftime('%d/%m/%Y')}** hasta **Viernes {fin_semana.strftime('%d/%m/%Y')}**")
-
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
     mantenimientos = consultar_tabla("mantenimientos")
-
     if not equipos:
         st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'.")
     else:
         df_eq = pd.DataFrame(equipos)
         df_partes = pd.DataFrame(partes) if partes else pd.DataFrame()
         df_maint = pd.DataFrame(mantenimientos) if mantenimientos else pd.DataFrame()
-
         programacion_semanal = []
-
         for _, eq in df_eq.iterrows():
-            cod = eq.get("codigo_interno") or eq.get("codigo_equipo")
+            placa_eq = eq.get("placa") or eq.get("codigo_interno") or eq.get("codigo_equipo")
+            cod_int = eq.get("codigo_interno", "")
             freq = float(eq.get("frecuencia_mantenimientos") or 250)
             
             um_raw = str(eq.get("unidad_medida", "")).strip().lower()
@@ -351,23 +345,20 @@ elif modulo == "3. Programación Semanal PM":
             
             lectura_actual = 0.0
             if not df_partes.empty and "codigo_equipo" in df_partes.columns:
-                partes_eq = df_partes[df_partes["codigo_equipo"] == cod]
+                partes_eq = df_partes[(df_partes["codigo_equipo"] == placa_eq) | (df_partes["codigo_equipo"] == cod_int)]
                 if not partes_eq.empty:
                     col_lectura = "kilometro_final" if es_km else "horometro_final"
                     if col_lectura in partes_eq.columns:
                         lectura_actual = float(partes_eq[col_lectura].max() or 0.0)
-
             ultimo_pm_lectura = 0.0
             if not df_maint.empty and "codigo_equipo" in df_maint.columns:
-                maint_eq = df_maint[df_maint["codigo_equipo"] == cod]
+                maint_eq = df_maint[(df_maint["codigo_equipo"] == placa_eq) | (df_maint["codigo_equipo"] == cod_int)]
                 if not maint_eq.empty:
                     col_maint = "kilometraje_ejecucion" if es_km else "horometro_ejecucion"
                     if col_maint in maint_eq.columns:
                         ultimo_pm_lectura = float(maint_eq[col_maint].max() or 0.0)
-
             prox_pm_lectura = ultimo_pm_lectura + freq
             recorrido_restante = prox_pm_lectura - lectura_actual
-
             if recorrido_restante <= 0:
                 estado_prog = "🔴 MANTENIMIENTO VENCIDO / URGENTE"
                 prioridad = "ALTA"
@@ -377,9 +368,9 @@ elif modulo == "3. Programación Semanal PM":
             else:
                 estado_prog = "🟢 VIGENTE"
                 prioridad = "BAJA"
-
             programacion_semanal.append({
-                "Código Equipo": cod,
+                "Placa": placa_eq,
+                "Código Interno": cod_int,
                 "Medición": tipo_unidad.upper(),
                 "Frecuencia": f"{freq:.0f} {tipo_unidad}",
                 "Último PM Exec.": f"{ultimo_pm_lectura:.1f} {tipo_unidad}",
@@ -389,21 +380,16 @@ elif modulo == "3. Programación Semanal PM":
                 "Estado esta Semana": estado_prog,
                 "Prioridad": prioridad
             })
-
         df_prog = pd.DataFrame(programacion_semanal)
-
         st.subheader("📋 Equipos Programados para Mantenimiento esta Semana")
         equipos_semana = df_prog[df_prog["Estado esta Semana"].str.contains("CORRESPONDE|VENCIDO")]
-
         if not equipos_semana.empty:
             st.dataframe(equipos_semana, use_container_width=True)
         else:
             st.success("✅ ¡Ningún equipo requiere mantenimiento programado para esta semana!")
-
         st.divider()
         st.subheader("🔍 Proyección Completa de la Flota (Horómetros vs. Kilometrajes)")
         st.dataframe(df_prog, use_container_width=True)
-
         st.download_button(
             label="📥 Descargar Programación Semanal en Excel (.xlsx)",
             data=generar_excel_bytes(df_prog, "Programacion_Semanal"),
@@ -424,15 +410,16 @@ elif modulo == "4. Historial de Mantenimientos":
         st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
-        lista_codigos = sorted(list(set(df_equipos["codigo_interno"].dropna().astype(str)))) if "codigo_interno" in df_equipos.columns else []
-
+        col_placa = "placa" if "placa" in df_equipos.columns else "codigo_interno"
+        lista_placas = sorted(list(set(df_equipos[col_placa].dropna().astype(str)))) if col_placa in df_equipos.columns else []
+        
         st.subheader("📝 Registrar Servicio Mecánico (`mantenimientos`)")
         
         with st.form("form_mantenimientos", clear_on_submit=True):
             col_m1, col_m2, col_m3 = st.columns(3)
             
             with col_m1:
-                codigo_sel = st.selectbox("Código del Equipo *", lista_codigos)
+                placa_sel = st.selectbox("Placa del Equipo *", lista_placas)
                 tipo_maint = st.selectbox("Tipo de Mantenimiento *", ["Preventivo", "Correctivo", "Retorqueo", "Inspección Técnica"])
                 nivel_pm = st.selectbox("Nivel PM *", [
                     "PM1 (250h)", 
@@ -450,15 +437,13 @@ elif modulo == "4. Historial de Mantenimientos":
                 proveedor = st.text_input("Proveedor / Taller", value="Taller Principal")
                 prox_horo = st.number_input("Próximo Horómetro Proyectado", min_value=0.0, step=10.0)
                 prox_km = st.number_input("Próximo Kilometraje Proyectado", min_value=0.0, step=100.0)
-
             descripcion = st.text_area("Descripción de Trabajos Realizados")
             foto_url = st.text_input("URL / Enlace de Evidencia Fotográfica (Opcional)")
-
             guardar_maint = st.form_submit_button("💾 Guardar Mantenimiento en Supabase", use_container_width=True)
             
             if guardar_maint:
                 nuevo_mantenimiento = {
-                    "codigo_equipo": codigo_sel,
+                    "codigo_equipo": placa_sel,  # Se guarda la Placa
                     "tipo_mantenimiento": tipo_maint,
                     "fecha_ejecucion": str(fecha_ejec),
                     "horometro_ejecucion": horo_ejec,
@@ -477,18 +462,18 @@ elif modulo == "4. Historial de Mantenimientos":
                     if isinstance(res_data, list) and len(res_data) > 0:
                         maint_id = res_data[0].get("id")
                     
-                    st.success(f"✅ Mantenimiento registrado con éxito para `{codigo_sel}` (ID Generado: `{maint_id}`).")
+                    st.success(f"✅ Mantenimiento registrado con éxito para Placa `{placa_sel}` (ID Generado: `{maint_id}`).")
                     st.rerun()
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {res_data}")
-
         st.divider()
         st.subheader("📊 Historial de Mantenimientos Registrados")
         historial_maint = consultar_tabla("mantenimientos")
         if historial_maint:
             df_hist_maint = pd.DataFrame(historial_maint)
+            if "codigo_equipo" in df_hist_maint.columns:
+                df_hist_maint.rename(columns={"codigo_equipo": "Placa Equipo"}, inplace=True)
             st.dataframe(df_hist_maint, use_container_width=True)
-
             st.download_button(
                 label="📥 Descargar Historial de Mantenimientos en Excel (.xlsx)",
                 data=generar_excel_bytes(df_hist_maint, "Historial_Mantenimientos"),
@@ -513,9 +498,8 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
     else:
         df_maint = pd.DataFrame(mantenimientos)
         df_rep = pd.DataFrame(repuestos_cat) if repuestos_cat else pd.DataFrame()
-
         opciones_maint = [
-            f"ID: {r.get('id')} | Equipo: {r.get('codigo_equipo')} | Fecha: {r.get('fecha_ejecucion')} | {r.get('tipo_mantenimiento')}"
+            f"ID: {r.get('id')} | Placa: {r.get('codigo_equipo')} | Fecha: {r.get('fecha_ejecucion')} | {r.get('tipo_mantenimiento')}"
             for _, r in df_maint.iterrows()
         ]
         
@@ -526,7 +510,6 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
                 label = f"ID: {r.get('id')} | Code: {r.get('codigo_repuesto')} - {r.get('descripcion')}"
                 opciones_rep.append(label)
                 dict_rep[label] = r
-
         st.subheader("📝 Asignar Repuesto y Costo al Mantenimiento")
         
         with st.form("form_mantenimiento_detalles_dedicado", clear_on_submit=True):
@@ -556,21 +539,18 @@ elif modulo == "5. Registro de Detalles y Consumo de Repuestos":
                 
                 if rep_sel != "Sin repuesto / Solo Mano de Obra" and rep_sel in dict_rep:
                     nuevo_detalle["repuesto_id"] = dict_rep[rep_sel].get("id")
-
                 exito, res_det = insertar_registro("mantenimiento_detalles", nuevo_detalle)
                 if exito:
                     st.success(f"✅ Detalle guardado correctamente en `mantenimiento_detalles` para el Mantenimiento ID `{maint_id}`.")
                     st.rerun()
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {res_det}")
-
         st.divider()
         st.subheader("📊 Historial de Detalles y Consumo de Repuestos")
         detalles_registrados = consultar_tabla("mantenimiento_detalles")
         if detalles_registrados:
             df_det_show = pd.DataFrame(detalles_registrados)
             st.dataframe(df_det_show, use_container_width=True)
-
             st.download_button(
                 label="📥 Descargar Consumo de Repuestos en Excel (.xlsx)",
                 data=generar_excel_bytes(df_det_show, "Consumo_Repuestos"),
@@ -595,7 +575,6 @@ elif modulo == "6. Catálogo de Repuestos":
         k2.metric("Categorías Registradas", df_rep["categoria"].nunique() if "categoria" in df_rep.columns else 0)
         k3.metric("Ubicación Principal", "Almacén Central Mina")
         st.divider()
-
     st.subheader("➕ Registrar Nuevo Repuesto en Catálogo")
     with st.form("form_repuestos_cat", clear_on_submit=True):
         col_r1, col_r2, col_r3 = st.columns(3)
@@ -621,7 +600,6 @@ elif modulo == "6. Catálogo de Repuestos":
             unidad = st.selectbox("Unidad de Medida *", ["Unidad", "Galón", "Juego", "Litro", "Metro", "Caja"])
         with col_r3:
             precio_ref = st.number_input("Precio Referencial (USD / PEN)", min_value=0.0, step=1.0)
-
         guardar_rep = st.form_submit_button("💾 Guardar Repuesto en Catálogo", use_container_width=True)
         
         if guardar_rep:
@@ -641,13 +619,11 @@ elif modulo == "6. Catálogo de Repuestos":
                     st.rerun()
                 else:
                     st.error(f"❌ Error al guardar en Supabase: {msg}")
-
     st.divider()
     st.subheader("📋 Catálogo Maestro de Repuestos")
     if repuestos:
         df_cat_show = pd.DataFrame(repuestos)
         st.dataframe(df_cat_show, use_container_width=True)
-
         st.download_button(
             label="📥 Descargar Catálogo de Repuestos en Excel (.xlsx)",
             data=generar_excel_bytes(df_cat_show, "Catalogo_Repuestos"),
@@ -664,49 +640,50 @@ elif modulo == "6. Catálogo de Repuestos":
 elif modulo == "7. KPIs y Ratio de Combustible":
     st.header("⛽ Reporte y Análisis de Ratios de Combustible")
     st.caption("Consolidado acumulado de combustible abastecido versus horas / kilómetros trabajados por tipo de flota.")
-
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
-
     if not partes or not equipos:
         st.info("Aún no hay suficientes registros en 'partes_diarios' o 'equipos' para calcular los ratios de combustible.")
     else:
         df_p = pd.DataFrame(partes)
         df_eq = pd.DataFrame(equipos)
-
         col_tipo_flota = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
-
         df_p["combustible_galones"] = pd.to_numeric(df_p["combustible_galones"], errors="coerce").fillna(0.0)
         df_p["horometro_final"] = pd.to_numeric(df_p["horometro_final"], errors="coerce").fillna(0.0)
         df_p["horometro_inicial"] = pd.to_numeric(df_p["horometro_inicial"], errors="coerce").fillna(0.0)
         df_p["kilometro_final"] = pd.to_numeric(df_p["kilometro_final"], errors="coerce").fillna(0.0)
         df_p["kilometro_inicial"] = pd.to_numeric(df_p["kilometro_inicial"], errors="coerce").fillna(0.0)
-
         df_p["horas_trabajadas"] = (df_p["horometro_final"] - df_p["horometro_inicial"]).clip(lower=0.0)
         df_p["km_recorridos"] = (df_p["kilometro_final"] - df_p["kilometro_inicial"]).clip(lower=0.0)
-
+        
+        # Merge inteligente contemplando si 'codigo_equipo' almacena Placa o Código Interno
         df_merged = df_p.merge(
-            df_eq[["codigo_interno", col_tipo_flota, "unidad_medida"]],
+            df_eq[["placa", "codigo_interno", col_tipo_flota, "unidad_medida"]],
             left_on="codigo_equipo",
-            right_on="codigo_interno",
+            right_on="placa",
             how="left"
         )
+        
+        # Si no hubo match por 'placa', probar por 'codigo_interno'
+        if df_merged[col_tipo_flota].isna().all() and "codigo_interno" in df_eq.columns:
+            df_merged = df_p.merge(
+                df_eq[["placa", "codigo_interno", col_tipo_flota, "unidad_medida"]],
+                left_on="codigo_equipo",
+                right_on="codigo_interno",
+                how="left"
+            )
 
         resumen_combustible = []
-
         for cod_eq, grp in df_merged.groupby("codigo_equipo"):
             total_gal = float(grp["combustible_galones"].sum())
             total_hrs = float(grp["horas_trabajadas"].sum())
             total_km = float(grp["km_recorridos"].sum())
-
             tipo_flota_val = grp[col_tipo_flota].iloc[0] if col_tipo_flota in grp.columns else "Sin Tipo"
             um = grp["unidad_medida"].iloc[0] if "unidad_medida" in grp.columns else "Horas"
-
             ratio_hrs = (total_gal / total_hrs) if total_hrs > 0 else 0.0
             ratio_km = (total_gal / total_km) if total_km > 0 else 0.0
-
             resumen_combustible.append({
-                "Código Equipo": cod_eq,
+                "Placa / Equipo": cod_eq,
                 "Tipo de Flota": tipo_flota_val or "General",
                 "Medición": um or "Horas",
                 "Total Galones Abastecidos": round(total_gal, 1),
@@ -715,33 +692,25 @@ elif modulo == "7. KPIs y Ratio de Combustible":
                 "Ratio (Gal / Horas)": round(ratio_hrs, 2),
                 "Ratio (Gal / KM)": round(ratio_km, 2)
             })
-
         df_resumen_c = pd.DataFrame(resumen_combustible)
-
         st.subheader("🔍 Filtro por Tipo de Flota")
         tipos_disponibles = ["TODOS"] + sorted(list(df_resumen_c["Tipo de Flota"].dropna().unique()))
         tipo_flota_sel = st.selectbox("Selecciona la categoría de flota a analizar:", tipos_disponibles)
-
         if tipo_flota_sel != "TODOS":
             df_filtrado = df_resumen_c[df_resumen_c["Tipo de Flota"] == tipo_flota_sel]
         else:
             df_filtrado = df_resumen_c
-
         st.subheader(f"📊 Métricas Acumuladas: Flota {tipo_flota_sel}")
         k1, k2, k3 = st.columns(3)
         total_gal_sel = float(df_filtrado['Total Galones Abastecidos'].sum())
         total_hrs_sel = float(df_filtrado['Total Horas Operadas'].sum())
-
         ratio_promedio_hrs = (total_gal_sel / total_hrs_sel) if total_hrs_sel > 0 else 0.0
-
         k1.metric("Total Galones Consumidos", f"{total_gal_sel:,.1f} Gal")
         k2.metric("Total Horas Operadas", f"{total_hrs_sel:,.1f} hrs")
         k3.metric("Ratio Promedio Categoría", f"{ratio_promedio_hrs:,.2f} Gal/hr")
-
         st.divider()
         st.subheader("📋 Consolidado por Equipo")
         st.dataframe(df_filtrado, use_container_width=True)
-
         st.download_button(
             label="📥 Descargar Ratios de Combustible en Excel (.xlsx)",
             data=generar_excel_bytes(df_filtrado, "Ratios_Combustible"),
@@ -749,11 +718,10 @@ elif modulo == "7. KPIs y Ratio de Combustible":
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-
         st.divider()
         st.subheader(f"📈 Comparativa de Consumo (Galones) - {tipo_flota_sel}")
         if not df_filtrado.empty:
-            st.bar_chart(data=df_filtrado.set_index("Código Equipo")["Total Galones Abastecidos"])
+            st.bar_chart(data=df_filtrado.set_index("Placa / Equipo")["Total Galones Abastecidos"])
         else:
             st.info("No hay datos para la categoría seleccionada.")
 
@@ -763,84 +731,67 @@ elif modulo == "7. KPIs y Ratio de Combustible":
 elif modulo == "8. Disponibilidad Mecánica":
     st.header("📈 Disponibilidad Mecánica de la Flota (%)")
     st.caption("Cálculo del porcentaje de operación vs. requerimiento mínimo del contrato (Meta: 90.0%).")
-
     hoy = datetime.now().date()
     inicio_semana, fin_semana = obtener_rango_semana_sabado_viernes(hoy)
-
     st.info(f"📆 **Semana Evaluada:** Desde **Sábado {inicio_semana.strftime('%d/%m/%Y')}** hasta **Viernes {fin_semana.strftime('%d/%m/%Y')}** (7 días base) | **🎯 Meta Contractual: 90.0%**")
-
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
-
     if not equipos:
         st.warning("⚠️ No se encontraron equipos en la tabla 'equipos'.")
     else:
         df_eq = pd.DataFrame(equipos)
         df_partes = pd.DataFrame(partes) if partes else pd.DataFrame()
-
-        col_codigo = "codigo_interno" if "codigo_interno" in df_eq.columns else "codigo_equipo"
         col_frente_eq = "frente_trabajo" if "frente_trabajo" in df_eq.columns else [c for c in df_eq.columns if "frente" in c or "ubicacion" in c or "frente_asignado" in c]
         col_frente_eq_name = col_frente_eq[0] if isinstance(col_frente_eq, list) and col_frente_eq else "frente_trabajo"
-
         disp_lista = []
-
         for _, eq in df_eq.iterrows():
-            cod = eq.get(col_codigo)
+            placa = eq.get("placa") or eq.get("codigo_interno")
+            cod_int = eq.get("codigo_interno", "")
             frente = eq.get(col_frente_eq_name) or "Sin Frente Asignado"
-
             dias_operativos = 0
             if not df_partes.empty and "codigo_equipo" in df_partes.columns and "fecha" in df_partes.columns:
                 partes_eq = df_partes[
-                    (df_partes["codigo_equipo"] == cod) &
+                    ((df_partes["codigo_equipo"] == placa) | (df_partes["codigo_equipo"] == cod_int)) &
                     (df_partes["fecha"] >= str(inicio_semana)) &
                     (df_partes["fecha"] <= str(fin_semana))
                 ]
                 
                 if not partes_eq.empty:
                     dias_operativos = partes_eq["fecha"].nunique()
-
             dias_op = min(dias_operativos, 7)
             dias_inop = 7 - dias_op
             porcentaje_disp = round((dias_op / 7.0) * 100, 1)
-
             if porcentaje_disp >= 90.0:
                 estado_disp = "🟢 DENTRO DE CONTRATO (≥90%)"
             else:
                 estado_disp = "🔴 INCUMPLIMIENTO CRÍTICO (<90%)"
-
             disp_lista.append({
-                "Código Equipo": cod,
+                "Placa Equipo": placa,
+                "Código Interno": cod_int,
                 "Frente de Trabajo": frente,
                 "Días Operativos": dias_op,
                 "Días Inoperativos": dias_inop,
                 "Disponibilidad (%)": porcentaje_disp,
                 "Estado Contrato": estado_disp
             })
-
         df_disp = pd.DataFrame(disp_lista)
-
         st.subheader("🔍 Filtro por Frente de Trabajo")
         frentes_unicos = ["TODOS LOS FRENTES"] + sorted(list(df_disp["Frente de Trabajo"].dropna().unique()))
         frente_sel = st.selectbox("Selecciona el frente de trabajo para inspeccionar:", frentes_unicos)
-
         if frente_sel != "TODOS LOS FRENTES":
             df_disp_fil = df_disp[df_disp["Frente de Trabajo"] == frente_sel]
         else:
             df_disp_fil = df_disp
-
         st.subheader(f"📊 Resumen SLA y Cumplimiento Contractual ({frente_sel})")
         m1, m2, k_prom = st.columns(3)
         prom_disp = df_disp_fil["Disponibilidad (%)"].mean() if not df_disp_fil.empty else 0.0
         cumplen_contrato = len(df_disp_fil[df_disp_fil["Disponibilidad (%)"] >= 90.0])
-
         m1.metric("Equipos Evaluados", len(df_disp_fil))
         m2.metric("Cumplen Contrato (≥90%)", f"{cumplen_contrato} equipos", delta=f"{((cumplen_contrato/max(1, len(df_disp_fil)))*100):.1f}% cumplimiento")
         k_prom.metric("Disponibilidad Promedio", f"{prom_disp:.1f}%", delta=f"{prom_disp - 90.0:.1f}% vs Meta (90%)")
-
         st.divider()
         st.subheader("📋 Matriz Semanal de Disponibilidad Mecánica por Equipo")
         st.dataframe(df_disp_fil, use_container_width=True)
-
         st.download_button(
             label="📥 Descargar Disponibilidad Mecánica en Excel (.xlsx)",
             data=generar_excel_bytes(df_disp_fil, "Disponibilidad_Mecanica"),
@@ -848,11 +799,10 @@ elif modulo == "8. Disponibilidad Mecánica":
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-
         st.divider()
         st.subheader(f"📈 Gráfico de Disponibilidad Mecánica (%) por Equipo - {frente_sel}")
         if not df_disp_fil.empty:
-            st.bar_chart(data=df_disp_fil.set_index("Código Equipo")["Disponibilidad (%)"])
+            st.bar_chart(data=df_disp_fil.set_index("Placa Equipo")["Disponibilidad (%)"])
 
 # ==========================================
 # MÓDULO 9: REPORTE EXPORTABLE DE MANTENIMIENTOS & EVIDENCIAS A4
@@ -860,67 +810,62 @@ elif modulo == "8. Disponibilidad Mecánica":
 elif modulo == "9. Reporte Exportable & Evidencias A4":
     st.header("📄 Reporte Exportable de Mantenimientos & Dossier de Evidencias A4")
     st.caption("Consolidado con asignación manual de OT y estado, listo para exportación a Excel y vista previa A4.")
-
     mantenimientos = consultar_tabla("mantenimientos")
     equipos = consultar_tabla("equipos")
-
     if not mantenimientos:
         st.info("No hay intervenciones en 'mantenimientos' para generar el reporte.")
     else:
         df_maint = pd.DataFrame(mantenimientos)
         df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
-
+        
         if not df_eq.empty and "codigo_interno" in df_eq.columns and "placa" in df_eq.columns:
+            # Merge probando primero por 'placa' o 'codigo_interno'
             df_reporte = df_maint.merge(
                 df_eq[["codigo_interno", "placa"]],
                 left_on="codigo_equipo",
-                right_on="codigo_interno",
+                right_on="placa",
                 how="left"
             )
+            # Rellenar con la propia Placa si el merge trajo NaN
+            df_reporte["placa"] = df_reporte["placa"].fillna(df_reporte["codigo_equipo"])
         else:
             df_reporte = df_maint.copy()
-            df_reporte["placa"] = "S/P"
-
+            df_reporte["placa"] = df_reporte["codigo_equipo"]
+            
         df_reporte["placa"] = df_reporte["placa"].fillna("S/P")
-        df_reporte["codigo_interno"] = df_reporte["codigo_equipo"]
         df_reporte["OT"] = df_reporte.get("OT", "OT-PENDIENTE")
         df_reporte["nivel_pm"] = df_reporte.get("nivel_pm", "PM General")
         df_reporte["creado_el"] = df_reporte.get("created_at", df_reporte.get("fecha_ejecucion", ""))
         df_reporte["estado"] = df_reporte.get("estado", "COMPLETADO")
-
+        
         st.subheader("✏️ Edición Manual de OT y Estado antes de Exportar")
-        cols_editor = ["id", "placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"]
+        cols_editor = ["id", "placa", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"]
         cols_existentes = [c for c in cols_editor if c in df_reporte.columns]
-
         df_editado = st.data_editor(
             df_reporte[cols_existentes],
             column_config={
+                "placa": st.column_config.TextColumn("Placa / Equipo"),
                 "OT": st.column_config.TextColumn("OT (Orden de Trabajo) *", help="Escriba manualmente la OT"),
                 "estado": st.column_config.SelectboxColumn("Estado *", options=["PROGRAMADO", "EN PROCESO", "COMPLETADO", "CANCELADO"]),
                 "foto_evidencia_url": st.column_config.LinkColumn("Evidencia Fotográfica")
             },
-            disabled=["id", "placa", "codigo_interno", "nivel_pm", "creado_el"],
+            disabled=["id", "placa", "nivel_pm", "creado_el"],
             use_container_width=True,
             num_rows="fixed"
         )
-
         st.divider()
-
-        # Generación de Excel Nativo Multipestaña para Módulo 9
+        
         buffer_excel = io.BytesIO()
         usar_excel_nativo = False
-
         try:
             with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
-                cols_h1 = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado"] if c in df_editado.columns]
+                cols_h1 = [c for c in ["placa", "OT", "nivel_pm", "creado_el", "estado"] if c in df_editado.columns]
                 df_editado[cols_h1].to_excel(writer, sheet_name="Mantenimientos_OT", index=False)
-
-                cols_h2 = [c for c in ["OT", "codigo_interno", "nivel_pm", "foto_evidencia_url"] if c in df_editado.columns]
+                cols_h2 = [c for c in ["OT", "placa", "nivel_pm", "foto_evidencia_url"] if c in df_editado.columns]
                 df_editado[cols_h2].to_excel(writer, sheet_name="Evidencias_Fotograficas", index=False)
             usar_excel_nativo = True
         except Exception:
             usar_excel_nativo = False
-
         if usar_excel_nativo:
             st.download_button(
                 label="📊 Descargar Reporte Completo en Excel Nativo (.xlsx)",
@@ -930,9 +875,8 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                 use_container_width=True
             )
         else:
-            cols_csv = [c for c in ["placa", "codigo_interno", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"] if c in df_editado.columns]
+            cols_csv = [c for c in ["placa", "OT", "nivel_pm", "creado_el", "estado", "foto_evidencia_url"] if c in df_editado.columns]
             csv_data = df_editado[cols_csv].to_csv(index=False, sep=";").encode('utf-8-sig')
-
             st.download_button(
                 label="📥 Descargar Reporte Formateado (CSV con separador ;)",
                 data=csv_data,
@@ -940,13 +884,10 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                 mime="text/csv",
                 use_container_width=True
             )
-
         st.divider()
         st.subheader("🖼️ Vista Previa Formato A4 - Dossier de Evidencias (2 Fotos por Línea)")
         st.caption("Formato optimizado para visualización y generación de reportes fotográficos.")
-
         df_fotos = df_editado[df_editado["foto_evidencia_url"].notna() & (df_editado["foto_evidencia_url"].astype(str).str.strip() != "")].copy()
-
         if df_fotos.empty:
             st.info("No se han adjuntado URLs de fotografía en las intervenciones registradas.")
         else:
@@ -959,7 +900,7 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                     raw_url1 = str(item1["foto_evidencia_url"]).strip()
                     direct_url1 = convertir_url_drive_a_directa(raw_url1)
                     
-                    st.markdown(f"**OT: {item1['OT']}** | `{item1['codigo_interno']}` ({item1['placa']}) - {item1['nivel_pm']}")
+                    st.markdown(f"**OT: {item1['OT']}** | Placa: `{item1['placa']}` - {item1['nivel_pm']}")
                     try:
                         if "/drive/folders/" in raw_url1:
                             st.link_button("📁 Abrir Carpeta de Evidencias (Google Drive)", raw_url1, use_container_width=True)
@@ -974,7 +915,7 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                         raw_url2 = str(item2["foto_evidencia_url"]).strip()
                         direct_url2 = convertir_url_drive_a_directa(raw_url2)
                         
-                        st.markdown(f"**OT: {item2['OT']}** | `{item2['codigo_interno']}` ({item2['placa']}) - {item2['nivel_pm']}")
+                        st.markdown(f"**OT: {item2['OT']}** | Placa: `{item2['placa']}` - {item2['nivel_pm']}")
                         try:
                             if "/drive/folders/" in raw_url2:
                                 st.link_button("📁 Abrir Carpeta de Evidencias (Google Drive)", raw_url2, use_container_width=True)
