@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import io
 import re
@@ -67,7 +68,6 @@ def generar_excel_bytes(dataframe, nombre_hoja="Datos"):
             dataframe.to_excel(writer, sheet_name=nombre_hoja, index=False)
         return buffer.getvalue()
     except Exception:
-        # Fallback de respaldo con separador punto y coma (;)
         return dataframe.to_csv(index=False, sep=";").encode('utf-8-sig')
 
 # Conversor de URLs de Google Drive a URLs Directas de Imagen
@@ -125,9 +125,10 @@ modulo = st.sidebar.radio(
         "4. Historial de Mantenimientos",
         "5. Registro de Detalles y Consumo de Repuestos",
         "6. Catálogo de Repuestos",
-        "7. KPIs y Ratio de Combustible",
+        "7. KPIs, Ratios & Análsis Z-Score",
         "8. Disponibilidad Mecánica",
-        "9. Reporte Exportable & Evidencias A4"
+        "9. Reporte Exportable & Evidencias A4",
+        "10. Registro de Vales de Combustible"
     ]
 )
 
@@ -214,8 +215,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         st.warning("⚠️ No se encontraron equipos registrados en la tabla 'equipos'. Debe registrar primero la flota.")
     else:
         df_equipos = pd.DataFrame(equipos)
-        
-        # Mapeo usando 'placa' preferentemente
         col_placa = "placa" if "placa" in df_equipos.columns else "codigo_interno"
         lista_placas = sorted(list(set(df_equipos[col_placa].dropna().astype(str)))) if col_placa in df_equipos.columns else []
         
@@ -266,7 +265,7 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
                 else:
                     nuevo_parte = {
                         "fecha": str(fecha_parte),
-                        "codigo_equipo": placa_sel,  # Se guarda la placa seleccionada
+                        "codigo_equipo": placa_sel,
                         "turno": turno,
                         "horometro_inicial": horo_init,
                         "horometro_final": horo_fin,
@@ -289,8 +288,6 @@ elif modulo == "2. Registro Diario de Partes y Tareo":
         partes_registrados = consultar_tabla("partes_diarios")
         if partes_registrados:
             df_partes_show = pd.DataFrame(partes_registrados)
-            
-            # Renombrar 'codigo_equipo' a 'Placa' para mayor claridad visual
             if "codigo_equipo" in df_partes_show.columns:
                 df_partes_show.rename(columns={"codigo_equipo": "Placa Equipo"}, inplace=True)
 
@@ -443,7 +440,7 @@ elif modulo == "4. Historial de Mantenimientos":
             
             if guardar_maint:
                 nuevo_mantenimiento = {
-                    "codigo_equipo": placa_sel,  # Se guarda la Placa
+                    "codigo_equipo": placa_sel,
                     "tipo_mantenimiento": tipo_maint,
                     "fecha_ejecucion": str(fecha_ejec),
                     "horometro_ejecucion": horo_ejec,
@@ -635,95 +632,176 @@ elif modulo == "6. Catálogo de Repuestos":
         st.info("Aún no hay registros en la tabla 'repuestos_cat'.")
 
 # ==========================================
-# MÓDULO 7: KPIS Y RATIO DE COMBUSTIBLE
+# MÓDULO 7: KPIS, RATIOS & ANÁLISIS Z-SCORE
 # ==========================================
-elif modulo == "7. KPIs y Ratio de Combustible":
-    st.header("⛽ Reporte y Análisis de Ratios de Combustible")
-    st.caption("Consolidado acumulado de combustible abastecido versus horas / kilómetros trabajados por tipo de flota.")
+elif modulo == "7. KPIs, Ratios & Análsis Z-Score":
+    st.header("⛽ Reporte, Ratios de Combustible y Detección de Anomalías (Z-Score)")
+    st.caption("Consolidado acumulado de abastecimiento vs. trabajo operado, con evaluación estadística Z-Score por Unidad u Operador.")
+    
     equipos = consultar_tabla("equipos")
     partes = consultar_tabla("partes_diarios")
-    if not partes or not equipos:
-        st.info("Aún no hay suficientes registros en 'partes_diarios' o 'equipos' para calcular los ratios de combustible.")
-    else:
-        df_p = pd.DataFrame(partes)
-        df_eq = pd.DataFrame(equipos)
-        col_tipo_flota = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
-        df_p["combustible_galones"] = pd.to_numeric(df_p["combustible_galones"], errors="coerce").fillna(0.0)
-        df_p["horometro_final"] = pd.to_numeric(df_p["horometro_final"], errors="coerce").fillna(0.0)
-        df_p["horometro_inicial"] = pd.to_numeric(df_p["horometro_inicial"], errors="coerce").fillna(0.0)
-        df_p["kilometro_final"] = pd.to_numeric(df_p["kilometro_final"], errors="coerce").fillna(0.0)
-        df_p["kilometro_inicial"] = pd.to_numeric(df_p["kilometro_inicial"], errors="coerce").fillna(0.0)
-        df_p["horas_trabajadas"] = (df_p["horometro_final"] - df_p["horometro_inicial"]).clip(lower=0.0)
-        df_p["km_recorridos"] = (df_p["kilometro_final"] - df_p["kilometro_inicial"]).clip(lower=0.0)
-        
-        # Merge inteligente contemplando si 'codigo_equipo' almacena Placa o Código Interno
-        df_merged = df_p.merge(
-            df_eq[["placa", "codigo_interno", col_tipo_flota, "unidad_medida"]],
-            left_on="codigo_equipo",
-            right_on="placa",
-            how="left"
-        )
-        
-        # Si no hubo match por 'placa', probar por 'codigo_interno'
-        if df_merged[col_tipo_flota].isna().all() and "codigo_interno" in df_eq.columns:
+    vales = consultar_tabla("vales_combustible")
+
+    df_p = pd.DataFrame(partes) if partes else pd.DataFrame()
+    df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+    df_vales = pd.DataFrame(vales) if vales else pd.DataFrame()
+
+    tab_ratios, tab_z_unidad, tab_z_operador = st.tabs([
+        "📊 Ratios por Tipo de Flota",
+        "🎯 Análsis Z-Score por Unidad",
+        "👤 Análsis Z-Score por Operador"
+    ])
+
+    # --- PESTAÑA 1: RATIOS CONSOLIDADOS ---
+    with tab_ratios:
+        if df_p.empty or df_eq.empty:
+            st.info("Aún no hay suficientes registros en 'partes_diarios' o 'equipos' para calcular los ratios.")
+        else:
+            col_tipo_flota = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
+            df_p["combustible_galones"] = pd.to_numeric(df_p["combustible_galones"], errors="coerce").fillna(0.0)
+            df_p["horometro_final"] = pd.to_numeric(df_p["horometro_final"], errors="coerce").fillna(0.0)
+            df_p["horometro_inicial"] = pd.to_numeric(df_p["horometro_inicial"], errors="coerce").fillna(0.0)
+            df_p["kilometro_final"] = pd.to_numeric(df_p["kilometro_final"], errors="coerce").fillna(0.0)
+            df_p["kilometro_inicial"] = pd.to_numeric(df_p["kilometro_inicial"], errors="coerce").fillna(0.0)
+            df_p["horas_trabajadas"] = (df_p["horometro_final"] - df_p["horometro_inicial"]).clip(lower=0.0)
+            df_p["km_recorridos"] = (df_p["kilometro_final"] - df_p["kilometro_inicial"]).clip(lower=0.0)
+            
             df_merged = df_p.merge(
                 df_eq[["placa", "codigo_interno", col_tipo_flota, "unidad_medida"]],
                 left_on="codigo_equipo",
-                right_on="codigo_interno",
+                right_on="placa",
                 how="left"
             )
 
-        resumen_combustible = []
-        for cod_eq, grp in df_merged.groupby("codigo_equipo"):
-            total_gal = float(grp["combustible_galones"].sum())
-            total_hrs = float(grp["horas_trabajadas"].sum())
-            total_km = float(grp["km_recorridos"].sum())
-            tipo_flota_val = grp[col_tipo_flota].iloc[0] if col_tipo_flota in grp.columns else "Sin Tipo"
-            um = grp["unidad_medida"].iloc[0] if "unidad_medida" in grp.columns else "Horas"
-            ratio_hrs = (total_gal / total_hrs) if total_hrs > 0 else 0.0
-            ratio_km = (total_gal / total_km) if total_km > 0 else 0.0
-            resumen_combustible.append({
-                "Placa / Equipo": cod_eq,
-                "Tipo de Flota": tipo_flota_val or "General",
-                "Medición": um or "Horas",
-                "Total Galones Abastecidos": round(total_gal, 1),
-                "Total Horas Operadas": round(total_hrs, 1),
-                "Total KM Recorridos": round(total_km, 1),
-                "Ratio (Gal / Horas)": round(ratio_hrs, 2),
-                "Ratio (Gal / KM)": round(ratio_km, 2)
-            })
-        df_resumen_c = pd.DataFrame(resumen_combustible)
-        st.subheader("🔍 Filtro por Tipo de Flota")
-        tipos_disponibles = ["TODOS"] + sorted(list(df_resumen_c["Tipo de Flota"].dropna().unique()))
-        tipo_flota_sel = st.selectbox("Selecciona la categoría de flota a analizar:", tipos_disponibles)
-        if tipo_flota_sel != "TODOS":
-            df_filtrado = df_resumen_c[df_resumen_c["Tipo de Flota"] == tipo_flota_sel]
+            resumen_combustible = []
+            for cod_eq, grp in df_merged.groupby("codigo_equipo"):
+                total_gal = float(grp["combustible_galones"].sum())
+                total_hrs = float(grp["horas_trabajadas"].sum())
+                total_km = float(grp["km_recorridos"].sum())
+                tipo_flota_val = grp[col_tipo_flota].iloc[0] if col_tipo_flota in grp.columns else "Sin Tipo"
+                um = grp["unidad_medida"].iloc[0] if "unidad_medida" in grp.columns else "Horas"
+                ratio_hrs = (total_gal / total_hrs) if total_hrs > 0 else 0.0
+                ratio_km = (total_gal / total_km) if total_km > 0 else 0.0
+                resumen_combustible.append({
+                    "Placa / Equipo": cod_eq,
+                    "Tipo de Flota": tipo_flota_val or "General",
+                    "Medición": um or "Horas",
+                    "Total Galones Abastecidos": round(total_gal, 1),
+                    "Total Horas Operadas": round(total_hrs, 1),
+                    "Total KM Recorridos": round(total_km, 1),
+                    "Ratio (Gal / Horas)": round(ratio_hrs, 2),
+                    "Ratio (Gal / KM)": round(ratio_km, 2)
+                })
+            df_resumen_c = pd.DataFrame(resumen_combustible)
+            tipos_disponibles = ["TODOS"] + sorted(list(df_resumen_c["Tipo de Flota"].dropna().unique()))
+            tipo_flota_sel = st.selectbox("Filtrar por Categoría de Flota:", tipos_disponibles, key="sel_flota_m7")
+            
+            df_filtrado = df_resumen_c[df_resumen_c["Tipo de Flota"] == tipo_flota_sel] if tipo_flota_sel != "TODOS" else df_resumen_c
+            
+            k1, k2, k3 = st.columns(3)
+            total_gal_sel = float(df_filtrado['Total Galones Abastecidos'].sum())
+            total_hrs_sel = float(df_filtrado['Total Horas Operadas'].sum())
+            ratio_promedio_hrs = (total_gal_sel / total_hrs_sel) if total_hrs_sel > 0 else 0.0
+            k1.metric("Total Galones Consumidos", f"{total_gal_sel:,.1f} Gal")
+            k2.metric("Total Horas Operadas", f"{total_hrs_sel:,.1f} hrs")
+            k3.metric("Ratio Promedio Categoría", f"{ratio_promedio_hrs:,.2f} Gal/hr")
+            st.divider()
+            st.dataframe(df_filtrado, use_container_width=True)
+            st.download_button(
+                label="📥 Descargar Ratios en Excel (.xlsx)",
+                data=generar_excel_bytes(df_filtrado, "Ratios_Combustible"),
+                file_name=f"Ratios_Combustible_{tipo_flota_sel}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+    # --- PESTAÑA 2: Z-SCORE POR UNIDAD ---
+    with tab_z_unidad:
+        st.subheader("🎯 Evaluación Estadísticas Z-Score por Unidad (Placa)")
+        st.caption("Detecta galonajes atípicos por vehículo respecto a la media de su tipo de flota.")
+        if df_vales.empty:
+            st.info("Aún no hay registo de Vales de Combustible en el Módulo 10 para calcular el Z-Score por Unidad.")
         else:
-            df_filtrado = df_resumen_c
-        st.subheader(f"📊 Métricas Acumuladas: Flota {tipo_flota_sel}")
-        k1, k2, k3 = st.columns(3)
-        total_gal_sel = float(df_filtrado['Total Galones Abastecidos'].sum())
-        total_hrs_sel = float(df_filtrado['Total Horas Operadas'].sum())
-        ratio_promedio_hrs = (total_gal_sel / total_hrs_sel) if total_hrs_sel > 0 else 0.0
-        k1.metric("Total Galones Consumidos", f"{total_gal_sel:,.1f} Gal")
-        k2.metric("Total Horas Operadas", f"{total_hrs_sel:,.1f} hrs")
-        k3.metric("Ratio Promedio Categoría", f"{ratio_promedio_hrs:,.2f} Gal/hr")
-        st.divider()
-        st.subheader("📋 Consolidado por Equipo")
-        st.dataframe(df_filtrado, use_container_width=True)
-        st.download_button(
-            label="📥 Descargar Ratios de Combustible en Excel (.xlsx)",
-            data=generar_excel_bytes(df_filtrado, "Ratios_Combustible"),
-            file_name=f"Ratios_Combustible_{tipo_flota_sel}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-        st.divider()
-        st.subheader(f"📈 Comparativa de Consumo (Galones) - {tipo_flota_sel}")
-        if not df_filtrado.empty:
-            st.bar_chart(data=df_filtrado.set_index("Placa / Equipo")["Total Galones Abastecidos"])
+            df_v = df_vales.copy()
+            df_v["cantidad_galones"] = pd.to_numeric(df_v["cantidad_galones"], errors="coerce").fillna(0.0)
+            
+            # Cruzar vales con la tabla equipos para obtener el tipo de vehículo / flota
+            if not df_eq.empty and "placa" in df_eq.columns:
+                col_tipo = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
+                df_v = df_v.merge(df_eq[["placa", col_tipo]], left_on="placa_equipo", right_on="placa", how="left")
+                df_v["Tipo Flota"] = df_v[col_tipo].fillna("General")
+            else:
+                df_v["Tipo Flota"] = df_v.get("tipo_vehiculo", "General")
+
+            # Cálculo de Z-Score por Grupo (Tipo de Flota)
+            grp_stats = df_v.groupby("Tipo Flota")["cantidad_galones"].agg(["mean", "std"]).reset_index()
+            grp_stats.columns = ["Tipo Flota", "Media_Grupo", "Std_Grupo"]
+            
+            df_v = df_v.merge(grp_stats, on="Tipo Flota", how="left")
+            
+            # Evitar división entre 0 en std
+            df_v["Std_Grupo"] = df_v["Std_Grupo"].replace(0, np.nan)
+            df_v["Z-Score"] = ((df_v["cantidad_galones"] - df_v["Media_Grupo"]) / df_v["Std_Grupo"]).fillna(0.0).round(2)
+            
+            def clasificar_zscore(z):
+                if abs(z) <= 1.5:
+                    return "🟢 NORMAL"
+                elif 1.5 < abs(z) <= 2.5:
+                    return "🟡 ALERTA / DESVIACIÓN"
+                else:
+                    return "🔴 ANOMALÍA CRÍTICA"
+
+            df_v["Estado Z-Score"] = df_v["Z-Score"].apply(clasificar_zscore)
+            
+            cols_z_unit = ["fecha_abastecimiento", "placa_equipo", "Tipo Flota", "cantidad_galones", "Media_Grupo", "Z-Score", "Estado Z-Score", "nombre_operador"]
+            cols_z_unit_exist = [c for c in cols_z_unit if c in df_v.columns]
+            
+            st.dataframe(df_v[cols_z_unit_exist], use_container_width=True)
+            st.download_button(
+                label="📥 Descargar Análisis Z-Score Unidades en Excel (.xlsx)",
+                data=generar_excel_bytes(df_v[cols_z_unit_exist], "ZScore_Unidades"),
+                file_name=f"ZScore_Unidades_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+    # --- PESTAÑA 3: Z-SCORE POR OPERADOR ---
+    with tab_z_operador:
+        st.subheader("👤 Evaluación Estadística Z-Score por Operador")
+        st.caption("Identifica patrones de consumo o sobre-despachos atípicos asociados a operadores específicos.")
+        if df_vales.empty:
+            st.info("Aún no hay registo de Vales de Combustible en el Módulo 10 para calcular el Z-Score por Operador.")
         else:
-            st.info("No hay datos para la categoría seleccionada.")
+            df_vo = df_vales.copy()
+            df_vo["cantidad_galones"] = pd.to_numeric(df_vo["cantidad_galones"], errors="coerce").fillna(0.0)
+            
+            # Promedio por Operador vs Promedio Global
+            resumen_op = df_vo.groupby(["nombre_operador", "dni_operador"]).agg(
+                Total_Vales=("id", "count"),
+                Total_Galones=("cantidad_galones", "sum"),
+                Promedio_Galones_Vale=("cantidad_galones", "mean")
+            ).reset_index()
+
+            media_global_op = resumen_op["Promedio_Galones_Vale"].mean()
+            std_global_op = resumen_op["Promedio_Galones_Vale"].std()
+            
+            if pd.isna(std_global_op) or std_global_op == 0:
+                resumen_op["Z-Score Operador"] = 0.0
+            else:
+                resumen_op["Z-Score Operador"] = ((resumen_op["Promedio_Galones_Vale"] - media_global_op) / std_global_op).round(2)
+                
+            resumen_op["Estado Operador"] = resumen_op["Z-Score Operador"].apply(
+                lambda z: "🟢 NORMAL" if abs(z) <= 1.5 else ("🟡 ALERTA" if abs(z) <= 2.5 else "🔴 CRÍTICO")
+            )
+
+            st.dataframe(resumen_op, use_container_width=True)
+            st.download_button(
+                label="📥 Descargar Análisis Z-Score Operadores en Excel (.xlsx)",
+                data=generar_excel_bytes(resumen_op, "ZScore_Operadores"),
+                file_name=f"ZScore_Operadores_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
 # ==========================================
 # MÓDULO 8: DISPONIBILIDAD MECÁNICA POR EQUIPO Y FRENTE
@@ -819,14 +897,12 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
         df_eq = pd.DataFrame(equipos) if equipos else pd.DataFrame()
         
         if not df_eq.empty and "codigo_interno" in df_eq.columns and "placa" in df_eq.columns:
-            # Merge probando primero por 'placa' o 'codigo_interno'
             df_reporte = df_maint.merge(
                 df_eq[["codigo_interno", "placa"]],
                 left_on="codigo_equipo",
                 right_on="placa",
                 how="left"
             )
-            # Rellenar con la propia Placa si el merge trajo NaN
             df_reporte["placa"] = df_reporte["placa"].fillna(df_reporte["codigo_equipo"])
         else:
             df_reporte = df_maint.copy()
@@ -925,3 +1001,99 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
                             st.link_button("🔗 Abrir Foto en Google Drive", raw_url2, use_container_width=True)
                 
                 st.write("---")
+
+# ==========================================
+# MÓDULO 10: REGISTRO DE VALES DE COMBUSTIBLE
+# ==========================================
+elif modulo == "10. Registro de Vales de Combustible":
+    st.header("⛽ Registro Maestro de Vales de Combustible (`vales_combustible`)")
+    st.caption("Formulario dedicado para la emisión de vales de abastecimiento en grifo o cisterna.")
+
+    equipos = consultar_tabla("equipos")
+    
+    if not equipos:
+        st.warning("⚠️ No se encontraron equipos registrados en 'equipos'. Registre la flota primero.")
+    else:
+        df_eq = pd.DataFrame(equipos)
+        col_p = "placa" if "placa" in df_eq.columns else "codigo_interno"
+        lista_placas = sorted(list(set(df_eq[col_p].dropna().astype(str)))) if col_p in df_eq.columns else []
+
+        st.subheader("📋 Emitir Nuevo Vale de Combustible")
+        
+        with st.form("form_vale_combustible", clear_on_submit=True):
+            col_v1, col_v2, col_v3 = st.columns(3)
+            
+            with col_v1:
+                fecha_vale = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
+                placa_equipo_sel = st.selectbox("Placa del Vehículo Abastecido *", lista_placas)
+                placa_cisterna = st.text_input("Placa de Cisterna o Grifo *", value="CIS-01 / Grifo Principal")
+                
+            with col_v2:
+                tipo_combustible = st.selectbox("Tipo de Combustible *", ["Bio Diesel B-5", "Otros"])
+                cant_galones = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.5, step=0.5, value=10.0)
+                lectura_recarga = st.number_input("Horómetro / Kilometraje de Recarga *", min_value=0.0, step=1.0)
+
+            with col_v3:
+                nombre_operador = st.text_input("Nombre del Operador *")
+                dni_operador = st.text_input("DNI del Operador *")
+                ing_responsable = st.text_input("Ing. Responsable de Frente")
+
+            st.divider()
+            col_vd1, col_vd2 = st.columns(2)
+            with col_vd1:
+                codigo_frente = st.text_input("Código o Nombre de Frente")
+            with col_vd2:
+                detalle_consumo = st.text_area("Detalle / Observaciones del Consumo")
+
+            # Detectar automáticamente el tipo de vehículo
+            tipo_vehiculo_auto = "General"
+            if not df_eq.empty and "placa" in df_eq.columns:
+                eq_match = df_eq[df_eq["placa"] == placa_equipo_sel]
+                if not eq_match.empty and "tipo_flota" in eq_match.columns:
+                    tipo_vehiculo_auto = eq_match["tipo_flota"].values[0]
+
+            st.info(f"📌 **Tipo de Vehículo Detectado (Heredado de Flota):** `{tipo_vehiculo_auto}`")
+
+            guardar_vale = st.form_submit_button("💾 Guardar Vale de Combustible en Supabase", use_container_width=True)
+
+            if guardar_vale:
+                if not nombre_operador.strip() or not dni_operador.strip():
+                    st.error("❌ El Nombre y DNI del operador son obligatorios.")
+                else:
+                    nuevo_vale = {
+                        "fecha_abastecimiento": str(fecha_vale),
+                        "placa_equipo": placa_equipo_sel,
+                        "placa_cisterna_grifo": placa_cisterna,
+                        "tipo_combustible": tipo_combustible,
+                        "cantidad_galones": cant_galones,
+                        "lectura_recarga": lectura_recarga,
+                        "nombre_operador": nombre_operador.strip(),
+                        "dni_operador": dni_operador.strip(),
+                        "tipo_vehiculo": tipo_vehiculo_auto,
+                        "ing_responsable_frente": ing_responsable,
+                        "codigo_frente": codigo_frente,
+                        "detalle_consumo": detalle_consumo
+                    }
+
+                    exito, res_v = insertar_registro("vales_combustible", nuevo_vale)
+                    if exito:
+                        st.success(f"✅ Vale de combustible registrado correctamente para la Placa `{placa_equipo_sel}`.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al guardar en Supabase: {res_v}")
+
+        st.divider()
+        st.subheader("📊 Historial de Vales de Combustible Emitidos")
+        vales_emitidos = consultar_tabla("vales_combustible")
+        if vales_emitidos:
+            df_vales_show = pd.DataFrame(vales_emitidos)
+            st.dataframe(df_vales_show, use_container_width=True)
+            st.download_button(
+                label="📥 Descargar Vales de Combustible en Excel (.xlsx)",
+                data=generar_excel_bytes(df_vales_show, "Vales_Combustible"),
+                file_name=f"Vales_Combustible_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        else:
+            st.info("Aún no hay vales registrados en la tabla 'vales_combustible'.")
