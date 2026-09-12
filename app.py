@@ -725,7 +725,6 @@ elif modulo == "7. KPIs, Ratios & Análsis Z-Score":
             df_v = df_vales.copy()
             df_v["cantidad_galones"] = pd.to_numeric(df_v["cantidad_galones"], errors="coerce").fillna(0.0)
             
-            # Cruzar vales con la tabla equipos para obtener el tipo de vehículo / flota
             if not df_eq.empty and "placa" in df_eq.columns:
                 col_tipo = "tipo_flota" if "tipo_flota" in df_eq.columns else [c for c in df_eq.columns if "tipo" in c or "flota" in c][0]
                 df_v = df_v.merge(df_eq[["placa", col_tipo]], left_on="placa_equipo", right_on="placa", how="left")
@@ -733,13 +732,10 @@ elif modulo == "7. KPIs, Ratios & Análsis Z-Score":
             else:
                 df_v["Tipo Flota"] = df_v.get("tipo_vehiculo", "General")
 
-            # Cálculo de Z-Score por Grupo (Tipo de Flota)
             grp_stats = df_v.groupby("Tipo Flota")["cantidad_galones"].agg(["mean", "std"]).reset_index()
             grp_stats.columns = ["Tipo Flota", "Media_Grupo", "Std_Grupo"]
             
             df_v = df_v.merge(grp_stats, on="Tipo Flota", how="left")
-            
-            # Evitar división entre 0 en std
             df_v["Std_Grupo"] = df_v["Std_Grupo"].replace(0, np.nan)
             df_v["Z-Score"] = ((df_v["cantidad_galones"] - df_v["Media_Grupo"]) / df_v["Std_Grupo"]).fillna(0.0).round(2)
             
@@ -775,7 +771,6 @@ elif modulo == "7. KPIs, Ratios & Análsis Z-Score":
             df_vo = df_vales.copy()
             df_vo["cantidad_galones"] = pd.to_numeric(df_vo["cantidad_galones"], errors="coerce").fillna(0.0)
             
-            # Promedio por Operador vs Promedio Global
             resumen_op = df_vo.groupby(["nombre_operador", "dni_operador"]).agg(
                 Total_Vales=("id", "count"),
                 Total_Galones=("cantidad_galones", "sum"),
@@ -1007,14 +1002,17 @@ elif modulo == "9. Reporte Exportable & Evidencias A4":
 # ==========================================
 elif modulo == "10. Registro de Vales de Combustible":
     st.header("⛽ Registro Maestro de Vales de Combustible (`vales_combustible`)")
-    st.caption("Formulario dedicado para la emisión de vales de abastecimiento en grifo o cisterna.")
+    st.caption("Formulario dedicado para la emisión de vales con cálculo de ratio de consumo por recarga y Z-Score.")
 
     equipos = consultar_tabla("equipos")
+    vales_existentes = consultar_tabla("vales_combustible")
     
     if not equipos:
         st.warning("⚠️ No se encontraron equipos registrados en 'equipos'. Registre la flota primero.")
     else:
         df_eq = pd.DataFrame(equipos)
+        df_vales_hist = pd.DataFrame(vales_existentes) if vales_existentes else pd.DataFrame()
+        
         col_p = "placa" if "placa" in df_eq.columns else "codigo_interno"
         lista_placas = sorted(list(set(df_eq[col_p].dropna().astype(str)))) if col_p in df_eq.columns else []
 
@@ -1031,7 +1029,7 @@ elif modulo == "10. Registro de Vales de Combustible":
             with col_v2:
                 tipo_combustible = st.selectbox("Tipo de Combustible *", ["Bio Diesel B-5", "Otros"])
                 cant_galones = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.5, step=0.5, value=10.0)
-                lectura_recarga = st.number_input("Horómetro / Kilometraje de Recarga *", min_value=0.0, step=1.0)
+                lectura_recarga = st.number_input("Horómetro / Kilometraje de Recarga Actual *", min_value=0.0, step=1.0)
 
             with col_v3:
                 nombre_operador = st.text_input("Nombre del Operador *")
@@ -1045,14 +1043,34 @@ elif modulo == "10. Registro de Vales de Combustible":
             with col_vd2:
                 detalle_consumo = st.text_area("Detalle / Observaciones del Consumo")
 
-            # Detectar automáticamente el tipo de vehículo
+            # Detectar unidad de medida y tipo de vehículo heredado
             tipo_vehiculo_auto = "General"
+            um_auto = "Horas"
             if not df_eq.empty and "placa" in df_eq.columns:
                 eq_match = df_eq[df_eq["placa"] == placa_equipo_sel]
-                if not eq_match.empty and "tipo_flota" in eq_match.columns:
-                    tipo_vehiculo_auto = eq_match["tipo_flota"].values[0]
+                if not eq_match.empty:
+                    if "tipo_flota" in eq_match.columns:
+                        tipo_vehiculo_auto = eq_match["tipo_flota"].values[0] or "General"
+                    if "unidad_medida" in eq_match.columns:
+                        um_auto = eq_match["unidad_medida"].values[0] or "Horas"
 
-            st.info(f"📌 **Tipo de Vehículo Detectado (Heredado de Flota):** `{tipo_vehiculo_auto}`")
+            # Cálculo visual dinámico del Ratio de Consumo para el nuevo vale
+            lectura_anterior = 0.0
+            ratio_calc = 0.0
+            if not df_vales_hist.empty and "placa_equipo" in df_vales_hist.columns and "lectura_recarga" in df_vales_hist.columns:
+                hist_placa = df_vales_hist[df_vales_hist["placa_equipo"] == placa_equipo_sel]
+                if not hist_placa.empty:
+                    lectura_anterior = float(pd.to_numeric(hist_placa["lectura_recarga"], errors="coerce").max() or 0.0)
+
+            diferencia_recorrido = max(0.0, lectura_recarga - lectura_anterior)
+            if diferencia_recorrido > 0 and cant_galones > 0:
+                ratio_calc = round(cant_galones / diferencia_recorrido, 2)
+
+            st.info(
+                f"📌 **Tipo:** `{tipo_vehiculo_auto}` | **Última Lectura Registrada:** `{lectura_anterior:.1f}` | "
+                f"**Recorrido/Horas Turno:** `{diferencia_recorrido:.1f}` | "
+                f"⛽ **Ratio Estimado:** `{ratio_calc:.2f} Gal/({um_auto})`"
+            )
 
             guardar_vale = st.form_submit_button("💾 Guardar Vale de Combustible en Supabase", use_container_width=True)
 
@@ -1072,12 +1090,13 @@ elif modulo == "10. Registro de Vales de Combustible":
                         "tipo_vehiculo": tipo_vehiculo_auto,
                         "ing_responsable_frente": ing_responsable,
                         "codigo_frente": codigo_frente,
-                        "detalle_consumo": detalle_consumo
+                        "detalle_consumo": detalle_consumo,
+                        "ratio_consumo": ratio_calc
                     }
 
                     exito, res_v = insertar_registro("vales_combustible", nuevo_vale)
                     if exito:
-                        st.success(f"✅ Vale de combustible registrado correctamente para la Placa `{placa_equipo_sel}`.")
+                        st.success(f"✅ Vale registrado correctamente para `{placa_equipo_sel}` (Ratio: `{ratio_calc:.2f}`).")
                         st.rerun()
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {res_v}")
