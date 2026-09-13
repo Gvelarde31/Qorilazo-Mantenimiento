@@ -77,22 +77,22 @@ def generar_excel_bytes(dataframe, nombre_hoja="Datos"):
 
 def calcular_dias_vencimiento(fecha_str):
     if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
-        return None, "⚪ SIN FECHA"
+        return None, "SIN FECHA"
     try:
         fecha_venc = datetime.strptime(str(fecha_str)[:10], "%Y-%m-%d").date()
         hoy = datetime.now().date()
         dias = (fecha_venc - hoy).days
         
         if dias <= 15:
-            estado = f"🔴 CRÍTICO ({dias}d)"
+            estado = "CRÍTICO"
         elif 16 <= dias <= 31:
-            estado = f"🟡 ALERTA ({dias}d)"
+            estado = "ALERTA"
         else:
-            estado = f"🟢 VIGENTE ({dias}d)"
+            estado = "VIGENTE"
             
         return dias, estado
     except Exception:
-        return None, "⚪ FORMATO INVÁLIDO"
+        return None, "FORMATO INVÁLIDO"
 
 # Menú Lateral
 modulo = st.sidebar.radio(
@@ -344,31 +344,31 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     df_merged[col] = None
 
             documentos = [
-                ("soat", "dias_faltante_soat", "estado_soat", "SOAT"),
-                ("poliza", "dias_faltante_poliza", "estado_poliza", "Póliza"),
-                ("retorqueo", "dias_faltante_retorqueo", "estado_retorqueo", "Retorqueo"),
-                ("citv", "dias_faltante_citv", "estado_citv", "CITV"),
-                ("gps", "dias_faltante_gps", "estado_gps", "GPS"),
-                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias", "estado_tarjeta_mercancias", "Tarjeta Mercancías"),
-                ("certificado_operatividad", "dias_faltante_certificado_operatividad", "estado_certificado_operatividad", "Cert. Operatividad"),
-                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion", "estado_certificado_inspeccion", "Cert. Inspección")
+                ("soat", "dias_faltante_soat", "estado_soat"),
+                ("poliza", "dias_faltante_poliza", "estado_poliza"),
+                ("retorqueo", "dias_faltante_retorqueo", "estado_retorqueo"),
+                ("citv", "dias_faltante_citv", "estado_citv"),
+                ("gps", "dias_faltante_gps", "estado_gps"),
+                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias", "estado_tarjeta_mercancias"),
+                ("certificado_operatividad", "dias_faltante_certificado_operatividad", "estado_certificado_operatividad"),
+                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion", "estado_certificado_inspeccion")
             ]
 
             criticos_totales = 0
             alertas_totales = 0
             vigentes_totales = 0
 
-            for col_fecha, col_dias, col_estado, _ in documentos:
+            for col_fecha, col_dias, col_estado in documentos:
                 if col_fecha in df_merged.columns:
                     calc_res = df_merged[col_fecha].apply(calcular_dias_vencimiento)
                     df_merged[col_dias] = [r[0] for r in calc_res]
                     df_merged[col_estado] = [r[1] for r in calc_res]
                     
-                    criticos_totales += sum(1 for r in calc_res if "🔴" in r[1])
-                    alertas_totales += sum(1 for r in calc_res if "🟡" in r[1])
-                    vigentes_totales += sum(1 for r in calc_res if "🟢" in r[1])
+                    criticos_totales += sum(1 for r in calc_res if r[1] == "CRÍTICO")
+                    alertas_totales += sum(1 for r in calc_res if r[1] == "ALERTA")
+                    vigentes_totales += sum(1 for r in calc_res if r[1] == "VIGENTE")
 
-            # --- DASHBOARD SEMAFÓRICO (METRICAS RÁPIDAS) ---
+            # --- DASHBOARD SEMAFÓRICO (MÉTRICAS RÁPIDAS) ---
             st.subheader("🚨 Dashboard Semafórico de Documentación Minera")
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Equipos Monitoreados", len(df_activos))
@@ -379,7 +379,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
 
             st.subheader("🔍 Filtro Universal y Matriz Completa")
 
-            # Columnas completas incluyendo estados semafóricos
+            # Columnas completas con estados limpios ("CRÍTICO", "ALERTA", "VIGENTE")
             cols_export_estatus = [
                 "tipo_flota", "codigo_interno", "placa", "frente_asignado", "fotocheck",
                 "soat", "dias_faltante_soat", "estado_soat",
@@ -406,7 +406,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     val_filtro_est = "TODOS"
                     st.selectbox("2. Valor:", ["TODOS"], disabled=True)
             with c_e3:
-                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Alerta):").upper().strip()
+                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Estado):").upper().strip()
 
             df_est_filtrado = df_merged.copy()
             if col_filtro_est != "NINGUNO" and val_filtro_est != "TODOS":
