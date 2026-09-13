@@ -356,40 +356,44 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     df_merged[col] = None
 
             documentos = [
-                ("soat", "dias_faltante_soat", "estado_soat"),
-                ("poliza", "dias_faltante_poliza", "estado_poliza"),
-                ("retorqueo", "dias_faltante_retorqueo", "estado_retorqueo"),
-                ("citv", "dias_faltante_citv", "estado_citv"),
-                ("gps", "dias_faltante_gps", "estado_gps"),
-                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias", "estado_tarjeta_mercancias"),
-                ("certificado_operatividad", "dias_faltante_certificado_operatividad", "estado_certificado_operatividad"),
-                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion", "estado_certificado_inspeccion")
+                ("soat", "dias_faltante_soat", "estado_soat", "SOAT"),
+                ("poliza", "dias_faltante_poliza", "estado_poliza", "Póliza"),
+                ("retorqueo", "dias_faltante_retorqueo", "estado_retorqueo", "Retorqueo"),
+                ("citv", "dias_faltante_citv", "estado_citv", "CITV"),
+                ("gps", "dias_faltante_gps", "estado_gps", "GPS"),
+                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias", "estado_tarjeta_mercancias", "Tarjeta Mercancías"),
+                ("certificado_operatividad", "dias_faltante_certificado_operatividad", "estado_certificado_operatividad", "Cert. Operatividad"),
+                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion", "estado_certificado_inspeccion", "Cert. Inspección")
             ]
 
-            criticos_totales = 0
-            alertas_totales = 0
-            vigentes_totales = 0
+            resumen_documentos = []
 
-            for col_fecha, col_dias, col_estado in documentos:
+            for col_fecha, col_dias, col_estado, nom_doc in documentos:
                 if col_fecha in df_merged.columns:
                     calc_res = df_merged[col_fecha].apply(calcular_dias_vencimiento)
                     df_merged[col_dias] = [r[0] for r in calc_res]
                     df_merged[col_estado] = [r[1] for r in calc_res]
                     
-                    criticos_totales += sum(1 for r in calc_res if r[1] == "CRÍTICO")
-                    alertas_totales += sum(1 for r in calc_res if r[1] == "ALERTA")
-                    vigentes_totales += sum(1 for r in calc_res if r[1] == "VIGENTE")
+                    c_crit = sum(1 for r in calc_res if r[1] == "CRÍTICO")
+                    c_aler = sum(1 for r in calc_res if r[1] == "ALERTA")
+                    c_vige = sum(1 for r in calc_res if r[1] == "VIGENTE")
+                    c_sinf = sum(1 for r in calc_res if r[1] == "SIN FECHA")
+                    
+                    resumen_documentos.append({
+                        "Documento / Permiso": nom_doc,
+                        "🔴 CRÍTICO (≤15d)": c_crit,
+                        "🟡 ALERTA (16-31d)": c_aler,
+                        "🟢 VIGENTE (≥32d)": c_vige,
+                        "⚪ SIN FECHA": c_sinf
+                    })
 
-            # --- DASHBOARD SEMAFÓRICO (MÉTRICAS RÁPIDAS) ---
-            st.subheader("🚨 Dashboard Semafórico de Documentación Minera")
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Equipos Monitoreados", len(df_activos))
-            k2.metric("🔴 Alertas Críticas (≤15d)", criticos_totales)
-            k3.metric("🟡 Alertas Preventivas (16-31d)", alertas_totales)
-            k4.metric("🟢 Documentos Vigentes (≥32d)", vigentes_totales)
+            # --- DASHBOARD SEMAFÓRICO DETALLADO POR DOCUMENTO ---
+            st.subheader("🚨 Resumen Semafórico por Documento y Permiso")
+            df_resumen_doc = pd.DataFrame(resumen_documentos)
+            st.dataframe(df_resumen_doc, use_container_width=True)
             st.divider()
 
-            st.subheader("🔍 Filtro Universal y Matriz Completa")
+            st.subheader("🔍 Filtro Específico por Permiso y Estado de Vencimiento")
 
             cols_export_estatus = [
                 "tipo_flota", "codigo_interno", "placa", "frente_asignado", "fotocheck",
@@ -406,24 +410,37 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
             
             cols_disp_estatus = [c for c in cols_export_estatus if c in df_merged.columns]
 
+            # Controles de Filtro Específico
             c_e1, c_e2, c_e3 = st.columns([1.5, 1.5, 2])
             with c_e1:
-                col_filtro_est = st.selectbox("1. Filtrar por Columna:", options=["NINGUNO"] + cols_disp_estatus)
+                permiso_sel = st.selectbox(
+                    "1. Seleccione Permiso a Inspeccionar:",
+                    options=["TODOS LOS PERMISOS"] + [nom for _, _, _, nom in documentos]
+                )
             with c_e2:
-                if col_filtro_est != "NINGUNO":
-                    vals_est = ["TODOS"] + sorted(list(df_merged[col_filtro_est].dropna().astype(str).unique()))
-                    val_filtro_est = st.selectbox(f"2. Valor de {col_filtro_est}:", vals_est)
-                else:
-                    val_filtro_est = "TODOS"
-                    st.selectbox("2. Valor:", ["TODOS"], disabled=True)
+                estado_sel = st.selectbox(
+                    "2. Filtrar Estado:",
+                    options=["TODOS", "CRÍTICO", "ALERTA", "VIGENTE", "SIN FECHA"]
+                )
             with c_e3:
-                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Estado: CRITICO, ALERTA, VIGENTE):").strip()
+                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Frente, Tipo Flota):").strip()
 
             df_est_filtrado = df_merged.copy()
-            
-            if col_filtro_est != "NINGUNO" and val_filtro_est != "TODOS":
-                df_est_filtrado = df_est_filtrado[df_est_filtrado[col_filtro_est].astype(str) == val_filtro_est]
-                
+
+            # Aplicar filtro por Permiso Específico + Estado
+            if permiso_sel != "TODOS LOS PERMISOS":
+                col_estado_target = [col_est for _, _, col_est, nom in documentos if nom == permiso_sel][0]
+                if estado_sel != "TODOS":
+                    df_est_filtrado = df_est_filtrado[df_est_filtrado[col_estado_target] == estado_sel]
+            elif estado_sel != "TODOS":
+                # Si selecciona "CRÍTICO" en TODOS LOS PERMISOS, filtra filas donde al menos un permiso esté en ese estado
+                cols_estados = [col_est for _, _, col_est, _ in documentos if col_est in df_est_filtrado.columns]
+                mask_cualquiera = pd.Series(False, index=df_est_filtrado.index)
+                for ce in cols_estados:
+                    mask_cualquiera |= (df_est_filtrado[ce] == estado_sel)
+                df_est_filtrado = df_est_filtrado[mask_cualquiera]
+
+            # Aplicar búsqueda por texto libre
             if txt_est:
                 query_norm_est = normalizar_texto(txt_est)
                 mask_est = pd.Series(False, index=df_est_filtrado.index)
@@ -432,12 +449,14 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     mask_est |= serie_norm_est.str.contains(query_norm_est, regex=False)
                 df_est_filtrado = df_est_filtrado[mask_est]
 
+            st.metric("Equipos Encontrados", f"{len(df_est_filtrado)} de {len(df_activos)}")
+
             st.dataframe(df_est_filtrado[cols_disp_estatus], use_container_width=True)
 
             st.download_button(
-                label="📥 Descargar Reporte de Estatus Completo en Excel (.xlsx)",
-                data=generar_excel_bytes(df_est_filtrado[cols_disp_estatus], "Estatus_Equipos"),
-                file_name=f"Estatus_Equipos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                label="📥 Descargar Reporte de Estatus Filtrado en Excel (.xlsx)",
+                data=generar_excel_bytes(df_est_filtrado[cols_disp_estatus], "Estatus_Equipos_Filtrado"),
+                file_name=f"Estatus_Equipos_Filtrado_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
