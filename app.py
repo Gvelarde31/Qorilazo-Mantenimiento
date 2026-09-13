@@ -37,17 +37,17 @@ def consultar_tabla(nombre_tabla):
     except Exception:
         return []
 
-def insertar_registro(nombre_tabla, datos):
+def insertar_o_actualizar(nombre_tabla, datos):
     url_endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}"
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation"
+        "Prefer": "resolution=merge-duplicates"
     }
     try:
         response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
-        return response.status_code in [200, 201], response.json() if response.status_code in [200, 201] else response.text
+        return response.status_code in [200, 201, 204], response.text
     except Exception as e:
         return False, str(e)
 
@@ -75,12 +75,31 @@ def generar_excel_bytes(dataframe, nombre_hoja="Datos"):
     except Exception:
         return dataframe.to_csv(index=False, sep=";").encode('utf-8-sig')
 
+def calcular_dias_vencimiento(fecha_str):
+    if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
+        return None, "⚪ SIN FECHA"
+    try:
+        fecha_venc = datetime.strptime(str(fecha_str)[:10], "%Y-%m-%d").date()
+        hoy = datetime.now().date()
+        dias = (fecha_venc - hoy).days
+        
+        if dias <= 15:
+            estado = f"🔴 CRÍTICO ({dias}d)"
+        elif 16 <= dias <= 31:
+            estado = f"🟡 ALERTA ({dias}d)"
+        else:
+            estado = f"🟢 VIGENTE ({dias}d)"
+            
+        return dias, estado
+    except Exception:
+        return None, "⚪ FORMATO INVÁLIDO"
+
 # Menú Lateral
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
     [
         "1. Lista Maestra (Alta y Baja)",
-        "2. Estatus Equipo (En desarrollo)",
+        "2. Estatus Equipo (Acreditaciones)",
         "3. Reporte Diario (En desarrollo)",
         "4. Programa Mantenimiento (En desarrollo)",
         "5. Vale de Combustible (En desarrollo)",
@@ -106,12 +125,10 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
         "📁 Equipos Retirados"
     ])
 
-    # --- PESTAÑA 1: FLOTA ACTIVA Y FILTROS POR CUALQUIER COLUMNA ---
     with tab_activos:
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
             
-            # Orden exacto de columnas para mostrar
             cols_deseadas = [
                 "codigo_interno", "placa", "tipo_flota", "frecuencia_mantenimiento", "anio",
                 "marca", "modelo", "capacidad", "razon_social", "ruc", "contacto",
@@ -125,14 +142,12 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
             f_col1, f_col2, f_col3 = st.columns([1.5, 1.5, 2])
             
             with f_col1:
-                # El usuario puede elegir CUALQUIER columna para filtrar
                 columna_filtro = st.selectbox(
                     "1. Seleccione Columna para Filtrar:",
                     options=["NINGUNO"] + cols_disponibles
                 )
                 
             with f_col2:
-                # Se generan las opciones únicas de la columna elegida
                 if columna_filtro != "NINGUNO":
                     opciones_valores = ["TODOS"] + sorted(list(df_activos[columna_filtro].dropna().astype(str).unique()))
                     valor_filtro = st.selectbox(f"2. Filtrar por {columna_filtro}:", opciones_valores)
@@ -141,17 +156,14 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                     st.selectbox("2. Valor de Filtro:", ["TODOS"], disabled=True)
                     
             with f_col3:
-                # Búsqueda rápida por texto libre
                 busqueda_texto = st.text_input("🔎 3. Búsqueda por Texto (Placa, Código, Marca, Modelo, etc.):").upper().strip()
 
-            # Aplicar Filtros Dinámicos
             df_filtrado = df_activos.copy()
             
             if columna_filtro != "NINGUNO" and valor_filtro != "TODOS":
                 df_filtrado = df_filtrado[df_filtrado[columna_filtro].astype(str) == valor_filtro]
                 
             if busqueda_texto:
-                # Filtra si el texto coincide en cualquiera de las columnas principales
                 mask = pd.Series(False, index=df_filtrado.index)
                 for col in cols_disponibles:
                     mask |= df_filtrado[col].astype(str).str.contains(busqueda_texto, case=False, na=False)
@@ -159,14 +171,12 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
 
             st.divider()
             
-            # Métrica de Resumen
             m1, m2 = st.columns([1, 3])
             with m1:
                 st.metric("Equipos Encontrados", f"{len(df_filtrado)} de {len(df_activos)}")
             
             st.dataframe(df_filtrado[cols_disponibles], use_container_width=True)
             
-            # Botón para descargar exactamente el resultado que se ve en pantalla
             st.download_button(
                 label="📥 Descargar Resultado Filtrado en Excel (.xlsx)",
                 data=generar_excel_bytes(df_filtrado[cols_disponibles], "Flota_Filtrada"),
@@ -177,7 +187,6 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
         else:
             st.info("No hay equipos activos registrados en la base de datos.")
 
-    # --- PESTAÑA 2: AGREGAR EQUIPO ---
     with tab_agregar:
         st.subheader("➕ Agregar Nuevo Equipo a la Lista Maestra")
         with st.form("form_alta_equipo", clear_on_submit=True):
@@ -259,7 +268,6 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {res}")
 
-    # --- PESTAÑA 3: QUITAR EQUIPO ---
     with tab_retirar:
         st.subheader("❌ Retirar Equipo de la Flota Activa")
         st.caption("Esta acción pasará el equipo a estado 'RETIRADO' sin eliminar sus registros históricos.")
@@ -285,7 +293,6 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
         else:
             st.info("No hay registros en la base de datos.")
 
-    # --- PESTAÑA 4: EQUIPOS RETIRADOS ---
     with tab_inactivos:
         st.subheader("📁 Historial de Equipos Retirados / Inactivos")
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
@@ -307,5 +314,165 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
             else:
                 st.info("No hay equipos en el historial de retirados.")
 
+# ==========================================
+# MÓDULO 2: ESTATUS EQUIPO (ACREDITACIONES)
+# ==========================================
+elif modulo == "2. Estatus Equipo (Acreditaciones)":
+    st.header("🛡️ Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
+    st.caption("Sincronización en tiempo real con la Lista Maestra, días faltantes y semáforos de vencimiento.")
+
+    equipos = consultar_tabla("lista_maestra")
+    estatus = consultar_tabla("estatus_equipo")
+
+    df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+    df_estatus = pd.DataFrame(estatus) if estatus else pd.DataFrame()
+
+    tab_estatus_lista, tab_actualizar = st.tabs([
+        "📋 Estatus de Documentación & Filtros",
+        "✏️ Actualizar Permisos de Equipo"
+    ])
+
+    # --- PESTAÑA 1: LISTA CON CÁLCULO DE DÍAS FALTANTES Y SEMÁFOROS ---
+    with tab_estatus_lista:
+        if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
+            df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
+            
+            # Unir con la tabla estatus_equipo
+            if not df_estatus.empty:
+                df_merged = df_activos.merge(df_estatus, on="placa", how="left")
+            else:
+                df_merged = df_activos.copy()
+                for col in ["fotocheck", "soat", "poliza", "retorqueo", "citv", "gps", "tarjeta_mercancias", "certificado_operatividad", "certificado_inspeccion", "comentario"]:
+                    df_merged[col] = None
+
+            # Aplicar cálculo de Días Faltantes y Semáforo dinámico en Pandas
+            documentos = [
+                ("soat", "dias_faltante_soat"),
+                ("poliza", "dias_faltante_poliza"),
+                ("retorqueo", "dias_faltante_retorqueo"),
+                ("citv", "dias_faltante_citv"),
+                ("gps", "dias_faltante_gps"),
+                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias"),
+                ("certificado_operatividad", "dias_faltante_certificado_operatividad"),
+                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion")
+            ]
+
+            for col_fecha, col_dias in documentos:
+                if col_fecha in df_merged.columns:
+                    calc_res = df_merged[col_fecha].apply(calcular_dias_vencimiento)
+                    df_merged[col_dias] = [r[0] for r in calc_res]
+                    df_merged[f"estado_{col_fecha}"] = [r[1] for r in calc_res]
+
+            st.subheader("🔍 Filtro Universal de Estatus y Permisos")
+            
+            cols_export_estatus = [
+                "tipo_flota", "codigo_interno", "placa", "frente_asignado", "fotocheck",
+                "soat", "dias_faltante_soat", "poliza", "dias_faltante_poliza",
+                "retorqueo", "dias_faltante_retorqueo", "citv", "dias_faltante_citv",
+                "gps", "dias_faltante_gps", "tarjeta_mercancias", "dias_faltante_tarjeta_mercancias",
+                "certificado_operatividad", "dias_faltante_certificado_operatividad",
+                "certificado_inspeccion", "dias_faltante_certificado_inspeccion", "comentario"
+            ]
+            
+            cols_disp_estatus = [c for c in cols_export_estatus if c in df_merged.columns]
+
+            c_e1, c_e2, c_e3 = st.columns([1.5, 1.5, 2])
+            with c_e1:
+                col_filtro_est = st.selectbox("1. Filtrar por Columna:", options=["NINGUNO"] + cols_disp_estatus)
+            with c_e2:
+                if col_filtro_est != "NINGUNO":
+                    vals_est = ["TODOS"] + sorted(list(df_merged[col_filtro_est].dropna().astype(str).unique()))
+                    val_filtro_est = st.selectbox(f"2. Valor de {col_filtro_est}:", vals_est)
+                else:
+                    val_filtro_est = "TODOS"
+                    st.selectbox("2. Valor:", ["TODOS"], disabled=True)
+            with c_e3:
+                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Permiso):").upper().strip()
+
+            df_est_filtrado = df_merged.copy()
+            if col_filtro_est != "NINGUNO" and val_filtro_est != "TODOS":
+                df_est_filtrado = df_est_filtrado[df_est_filtrado[col_filtro_est].astype(str) == val_filtro_est]
+            if txt_est:
+                mask = pd.Series(False, index=df_est_filtrado.index)
+                for c in cols_disp_estatus:
+                    mask |= df_est_filtrado[c].astype(str).str.contains(txt_est, case=False, na=False)
+                df_est_filtrado = df_est_filtrado[mask]
+
+            st.divider()
+            st.metric("Total Equipos Evaluados", f"{len(df_est_filtrado)} de {len(df_activos)}")
+
+            st.dataframe(df_est_filtrado[cols_disp_estatus], use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Reporte de Estatus en Excel (.xlsx)",
+                data=generar_excel_bytes(df_est_filtrado[cols_disp_estatus], "Estatus_Equipos"),
+                file_name=f"Estatus_Equipos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        else:
+            st.info("No hay equipos activos registrados en la base de datos.")
+
+    # --- PESTAÑA 2: ACTUALIZAR O REGISTRAR PERMISOS ---
+    with tab_actualizar:
+        st.subheader("✏️ Actualizar Fechas de Vencimiento de Permisos")
+        if not df_equipos.empty:
+            df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
+            opciones_eq = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos.iterrows()]
+            
+            eq_sel_est = st.selectbox("Seleccione el equipo a actualizar:", opciones_eq)
+            placa_sel_est = eq_sel_est.split(" - ")[0].strip()
+
+            # Buscar si ya existen permisos para este equipo
+            datos_previos = {}
+            if not df_estatus.empty:
+                match_e = df_estatus[df_estatus["placa"] == placa_sel_est]
+                if not match_e.empty:
+                    datos_previos = match_e.iloc[0].to_dict()
+
+            with st.form("form_permisos_equipo", clear_on_submit=True):
+                st.markdown(f"##### 🛡️ Permisos para el Equipo Placa: `{placa_sel_est}`")
+                
+                ce1, ce2, ce3 = st.columns(3)
+                with ce1:
+                    fotocheck = st.selectbox("Fotocheck", ["SI", "NO"], index=0 if datos_previos.get("fotocheck") != "NO" else 1)
+                    soat = st.date_input("Vencimiento SOAT", datetime.now().date())
+                    poliza = st.date_input("Vencimiento Póliza Vehicular", datetime.now().date())
+                with ce2:
+                    retorqueo = st.date_input("Vencimiento Retorqueo", datetime.now().date())
+                    citv = st.date_input("Vencimiento CITV / Rev. Técnica", datetime.now().date())
+                    gps = st.date_input("Vencimiento GPS", datetime.now().date())
+                with ce3:
+                    tarjeta = st.date_input("Vencimiento Tarjeta Mercancías", datetime.now().date())
+                    operatividad = st.date_input("Certificado Operatividad", datetime.now().date())
+                    inspeccion = st.date_input("Certificado Inspección", datetime.now().date())
+
+                comentario = st.text_input("Comentario / Observaciones", value=datos_previos.get("comentario", ""))
+
+                st.divider()
+                guardar_est_btn = st.form_submit_button("💾 Guardar Estatus de Permisos", use_container_width=True)
+
+                if guardar_est_btn:
+                    reg_estatus = {
+                        "placa": placa_sel_est,
+                        "fotocheck": fotocheck,
+                        "soat": str(soat),
+                        "poliza": str(poliza),
+                        "retorqueo": str(retorqueo),
+                        "citv": str(citv),
+                        "gps": str(gps),
+                        "tarjeta_mercancias": str(tarjeta),
+                        "certificado_operatividad": str(operatividad),
+                        "certificado_inspeccion": str(inspeccion),
+                        "comentario": comentario
+                    }
+
+                    exito_e, res_e = insertar_o_actualizar("estatus_equipo", reg_estatus)
+                    if exito_e:
+                        st.success(f"✅ Permisos actualizados para la Placa `{placa_sel_est}`.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al guardar en Supabase: {res_e}")
+
 else:
-    st.info("Módulo en desarrollo para el siguiente paso de revisión.")
+    st.info("Módulo en desarrollo para la siguiente fase de revisión.")
