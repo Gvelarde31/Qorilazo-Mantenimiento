@@ -104,6 +104,14 @@ def calcular_dias_vencimiento(fecha_str):
     except Exception:
         return None, "FORMATO INVÁLIDO"
 
+def parse_fecha(fecha_val):
+    if not fecha_val or pd.isna(fecha_val) or str(fecha_val).strip() == "":
+        return datetime.now().date()
+    try:
+        return datetime.strptime(str(fecha_val)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return datetime.now().date()
+
 # Menú Lateral
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
@@ -387,7 +395,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         "⚪ SIN FECHA": c_sinf
                     })
 
-            # --- DASHBOARD SEMAFÓRICO DETALLADO POR DOCUMENTO ---
             st.subheader("🚨 Resumen Semafórico por Documento y Permiso")
             df_resumen_doc = pd.DataFrame(resumen_documentos)
             st.dataframe(df_resumen_doc, use_container_width=True)
@@ -410,7 +417,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
             
             cols_disp_estatus = [c for c in cols_export_estatus if c in df_merged.columns]
 
-            # Controles de Filtro Específico
             c_e1, c_e2, c_e3 = st.columns([1.5, 1.5, 2])
             with c_e1:
                 permiso_sel = st.selectbox(
@@ -427,20 +433,17 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
 
             df_est_filtrado = df_merged.copy()
 
-            # Aplicar filtro por Permiso Específico + Estado
             if permiso_sel != "TODOS LOS PERMISOS":
                 col_estado_target = [col_est for _, _, col_est, nom in documentos if nom == permiso_sel][0]
                 if estado_sel != "TODOS":
                     df_est_filtrado = df_est_filtrado[df_est_filtrado[col_estado_target] == estado_sel]
             elif estado_sel != "TODOS":
-                # Si selecciona "CRÍTICO" en TODOS LOS PERMISOS, filtra filas donde al menos un permiso esté en ese estado
                 cols_estados = [col_est for _, _, col_est, _ in documentos if col_est in df_est_filtrado.columns]
                 mask_cualquiera = pd.Series(False, index=df_est_filtrado.index)
                 for ce in cols_estados:
                     mask_cualquiera |= (df_est_filtrado[ce] == estado_sel)
                 df_est_filtrado = df_est_filtrado[mask_cualquiera]
 
-            # Aplicar búsqueda por texto libre
             if txt_est:
                 query_norm_est = normalizar_texto(txt_est)
                 mask_est = pd.Series(False, index=df_est_filtrado.index)
@@ -484,18 +487,18 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                 ce1, ce2, ce3 = st.columns(3)
                 with ce1:
                     fotocheck = st.selectbox("Fotocheck", ["SI", "NO"], index=0 if datos_previos.get("fotocheck") != "NO" else 1)
-                    soat = st.date_input("Vencimiento SOAT", datetime.now().date())
-                    poliza = st.date_input("Vencimiento Póliza Vehicular", datetime.now().date())
+                    soat = st.date_input("Vencimiento SOAT", value=parse_fecha(datos_previos.get("soat")))
+                    poliza = st.date_input("Vencimiento Póliza Vehicular", value=parse_fecha(datos_previos.get("poliza")))
                 with ce2:
-                    retorqueo = st.date_input("Vencimiento Retorqueo", datetime.now().date())
-                    citv = st.date_input("Vencimiento CITV / Rev. Técnica", datetime.now().date())
-                    gps = st.date_input("Vencimiento GPS", datetime.now().date())
+                    retorqueo = st.date_input("Vencimiento Retorqueo", value=parse_fecha(datos_previos.get("retorqueo")))
+                    citv = st.date_input("Vencimiento CITV / Rev. Técnica", value=parse_fecha(datos_previos.get("citv")))
+                    gps = st.date_input("Vencimiento GPS", value=parse_fecha(datos_previos.get("gps")))
                 with ce3:
-                    tarjeta = st.date_input("Vencimiento Tarjeta Mercancías", datetime.now().date())
-                    operatividad = st.date_input("Certificado Operatividad", datetime.now().date())
-                    inspeccion = st.date_input("Certificado Inspección", datetime.now().date())
+                    tarjeta = st.date_input("Vencimiento Tarjeta Mercancías", value=parse_fecha(datos_previos.get("tarjeta_mercancias")))
+                    operatividad = st.date_input("Certificado Operatividad", value=parse_fecha(datos_previos.get("certificado_operatividad")))
+                    inspeccion = st.date_input("Certificado Inspección", value=parse_fecha(datos_previos.get("certificado_inspeccion")))
 
-                comentario = st.text_input("Comentario / Observaciones", value=datos_previos.get("comentario", ""))
+                comentario = st.text_input("Comentario / Observaciones", value=datos_previos.get("comentario", "") if datos_previos.get("comentario") else "")
 
                 st.divider()
                 guardar_est_btn = st.form_submit_button("💾 Guardar Estatus de Permisos", use_container_width=True)
