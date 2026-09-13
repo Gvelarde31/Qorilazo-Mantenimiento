@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 import io
+import unicodedata
 
 # Configuración de la página
 st.set_page_config(
@@ -74,6 +75,15 @@ def generar_excel_bytes(dataframe, nombre_hoja="Datos"):
         return buffer.getvalue()
     except Exception:
         return dataframe.to_csv(index=False, sep=";").encode('utf-8-sig')
+
+def normalizar_texto(texto):
+    if not texto or pd.isna(texto):
+        return ""
+    texto_str = str(texto)
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', texto_str)
+        if unicodedata.category(c) != 'Mn'
+    ).upper().strip()
 
 def calcular_dias_vencimiento(fecha_str):
     if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
@@ -156,7 +166,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                     st.selectbox("2. Valor de Filtro:", ["TODOS"], disabled=True)
                     
             with f_col3:
-                busqueda_texto = st.text_input("🔎 3. Búsqueda por Texto (Placa, Código, Marca, Modelo, etc.):").upper().strip()
+                busqueda_texto = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Marca, Modelo, etc.):").strip()
 
             df_filtrado = df_activos.copy()
             
@@ -164,9 +174,11 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                 df_filtrado = df_filtrado[df_filtrado[columna_filtro].astype(str) == valor_filtro]
                 
             if busqueda_texto:
+                query_norm = normalizar_texto(busqueda_texto)
                 mask = pd.Series(False, index=df_filtrado.index)
                 for col in cols_disponibles:
-                    mask |= df_filtrado[col].astype(str).str.contains(busqueda_texto, case=False, na=False)
+                    serie_norm = df_filtrado[col].apply(normalizar_texto)
+                    mask |= serie_norm.str.contains(query_norm, regex=False)
                 df_filtrado = df_filtrado[mask]
 
             st.divider()
@@ -379,7 +391,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
 
             st.subheader("🔍 Filtro Universal y Matriz Completa")
 
-            # Columnas completas con estados limpios ("CRÍTICO", "ALERTA", "VIGENTE")
             cols_export_estatus = [
                 "tipo_flota", "codigo_interno", "placa", "frente_asignado", "fotocheck",
                 "soat", "dias_faltante_soat", "estado_soat",
@@ -406,16 +417,20 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     val_filtro_est = "TODOS"
                     st.selectbox("2. Valor:", ["TODOS"], disabled=True)
             with c_e3:
-                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Estado):").upper().strip()
+                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Estado: CRITICO, ALERTA, VIGENTE):").strip()
 
             df_est_filtrado = df_merged.copy()
+            
             if col_filtro_est != "NINGUNO" and val_filtro_est != "TODOS":
                 df_est_filtrado = df_est_filtrado[df_est_filtrado[col_filtro_est].astype(str) == val_filtro_est]
+                
             if txt_est:
-                mask = pd.Series(False, index=df_est_filtrado.index)
+                query_norm_est = normalizar_texto(txt_est)
+                mask_est = pd.Series(False, index=df_est_filtrado.index)
                 for c in cols_disp_estatus:
-                    mask |= df_est_filtrado[c].astype(str).str.contains(txt_est, case=False, na=False)
-                df_est_filtrado = df_est_filtrado[mask]
+                    serie_norm_est = df_est_filtrado[c].apply(normalizar_texto)
+                    mask_est |= serie_norm_est.str.contains(query_norm_est, regex=False)
+                df_est_filtrado = df_est_filtrado[mask_est]
 
             st.dataframe(df_est_filtrado[cols_disp_estatus], use_container_width=True)
 
