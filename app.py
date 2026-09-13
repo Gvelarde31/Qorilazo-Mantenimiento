@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import io
 import unicodedata
+import re
 
 # Configuración de la página
 st.set_page_config(
@@ -84,6 +85,29 @@ def normalizar_texto(texto):
         c for c in unicodedata.normalize('NFD', texto_str)
         if unicodedata.category(c) != 'Mn'
     ).upper().strip()
+
+def aplicar_busqueda_libre(df, columnas, query_texto):
+    if not query_texto:
+        return df
+    q_norm = normalizar_texto(query_texto)
+    if not q_norm:
+        return df
+
+    mask = pd.Series(False, index=df.index)
+    
+    # Si la búsqueda es de 2 caracteres o menos (ej: "SI", "NO"), buscar como palabra completa
+    es_palabra_corta = len(q_norm) <= 2
+    pattern = r'\b' + re.escape(q_norm) + r'\b' if es_palabra_corta else q_norm
+
+    for col in columnas:
+        if col in df.columns:
+            serie_norm = df[col].apply(normalizar_texto)
+            if es_palabra_corta:
+                mask |= serie_norm.str.contains(pattern, regex=True, na=False)
+            else:
+                mask |= serie_norm.str.contains(pattern, regex=False, na=False)
+                
+    return df[mask]
 
 def calcular_dias_vencimiento(fecha_str):
     if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
@@ -182,12 +206,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                 df_filtrado = df_filtrado[df_filtrado[columna_filtro].astype(str) == valor_filtro]
                 
             if busqueda_texto:
-                query_norm = normalizar_texto(busqueda_texto)
-                mask = pd.Series(False, index=df_filtrado.index)
-                for col in cols_disponibles:
-                    serie_norm = df_filtrado[col].apply(normalizar_texto)
-                    mask |= serie_norm.str.contains(query_norm, regex=False)
-                df_filtrado = df_filtrado[mask]
+                df_filtrado = aplicar_busqueda_libre(df_filtrado, cols_disponibles, busqueda_texto)
 
             st.divider()
             
@@ -429,7 +448,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     options=["TODOS", "CRÍTICO", "ALERTA", "VIGENTE", "SIN FECHA"]
                 )
             with c_e3:
-                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Frente, Tipo Flota):").strip()
+                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Fotocheck 'SI' / 'NO'):").strip()
 
             df_est_filtrado = df_merged.copy()
 
@@ -445,12 +464,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                 df_est_filtrado = df_est_filtrado[mask_cualquiera]
 
             if txt_est:
-                query_norm_est = normalizar_texto(txt_est)
-                mask_est = pd.Series(False, index=df_est_filtrado.index)
-                for c in cols_disp_estatus:
-                    serie_norm_est = df_est_filtrado[c].apply(normalizar_texto)
-                    mask_est |= serie_norm_est.str.contains(query_norm_est, regex=False)
-                df_est_filtrado = df_est_filtrado[mask_est]
+                df_est_filtrado = aplicar_busqueda_libre(df_est_filtrado, cols_disp_estatus, txt_est)
 
             st.metric("Equipos Encontrados", f"{len(df_est_filtrado)} de {len(df_activos)}")
 
