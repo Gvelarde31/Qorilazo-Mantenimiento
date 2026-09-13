@@ -94,77 +94,82 @@ modulo = st.sidebar.radio(
 # ==========================================
 if modulo == "1. Lista Maestra (Alta y Baja)":
     st.header("📋 Lista Maestra de Flota (`lista_maestra`)")
-    st.caption("Administración de datos maestros, altas, retiros y filtros dinámicos.")
+    st.caption("Administración de datos maestros, altas, retiros y filtros universales por cualquier columna.")
 
     equipos = consultar_tabla("lista_maestra")
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
 
     tab_activos, tab_agregar, tab_retirar, tab_inactivos = st.tabs([
-        "📋 Flota Activa & Filtros", 
+        "📋 Flota Activa & Filtros Universales", 
         "➕ Agregar Equipo", 
         "❌ Quitar Equipo",
         "📁 Equipos Retirados"
     ])
 
-    # --- PESTAÑA 1: FLOTA ACTIVA Y FILTROS MULTIVARIABLE ---
+    # --- PESTAÑA 1: FLOTA ACTIVA Y FILTROS POR CUALQUIER COLUMNA ---
     with tab_activos:
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
             
-            st.subheader("🔍 Filtros de Búsqueda y Selección")
-            
-            # Panel de Filtros Interactivos
-            f1, f2, f3, f4 = st.columns(4)
-            
-            with f1:
-                frec_opciones = ["TODOS"] + sorted(list(df_activos["tipo_flota"].dropna().unique())) if "tipo_flota" in df_activos.columns else ["TODOS"]
-                filtro_tipo = st.selectbox("Filtrar por Tipo de Flota:", frec_opciones)
-                
-            with f2:
-                frentes_opciones = ["TODOS"] + sorted(list(df_activos["frente_asignado"].dropna().unique())) if "frente_asignado" in df_activos.columns else ["TODOS"]
-                filtro_frente = st.selectbox("Filtrar por Frente Asignado:", frentes_opciones)
-                
-            with f3:
-                prop_opciones = ["TODOS"] + sorted(list(df_activos["propietario"].dropna().unique())) if "propietario" in df_activos.columns else ["TODOS"]
-                filtro_propietario = st.selectbox("Filtrar por Propietario:", prop_opciones)
-
-            with f4:
-                comu_opciones = ["TODOS"] + sorted(list(df_activos["comunidad"].dropna().unique())) if "comunidad" in df_activos.columns else ["TODOS"]
-                filtro_comunidad = st.selectbox("Filtrar por Comunidad:", comu_opciones)
-
-            # Aplicar Filtros en Cascada
-            df_filtrado = df_activos.copy()
-            if filtro_tipo != "TODOS":
-                df_filtrado = df_filtrado[df_filtrado["tipo_flota"] == filtro_tipo]
-            if filtro_frente != "TODOS":
-                df_filtrado = df_filtrado[df_filtrado["frente_asignado"] == filtro_frente]
-            if filtro_propietario != "TODOS":
-                df_filtrado = df_filtrado[df_filtrado["propietario"] == filtro_propietario]
-            if filtro_comunidad != "TODOS":
-                df_filtrado = df_filtrado[df_filtrado["comunidad"] == filtro_comunidad]
-
-            st.divider()
-            
-            # Métrica de Resumen Filtrado
-            col_m1, col_m2 = st.columns([1, 3])
-            with col_m1:
-                st.metric("Total Equipos Filtrados", f"{len(df_filtrado)} de {len(df_activos)}")
-            
-            # Columnas exactas solicitadas
-            cols_mostrar = [
+            # Orden exacto de columnas para mostrar
+            cols_deseadas = [
                 "codigo_interno", "placa", "tipo_flota", "frecuencia_mantenimiento", "anio",
                 "marca", "modelo", "capacidad", "razon_social", "ruc", "contacto",
                 "propietario", "comunidad", "potencia_kw", "potencia_hp", "potencia_cv",
                 "fecha_ingreso_proyecto", "frente_asignado"
             ]
-            cols_existentes = [c for c in cols_mostrar if c in df_filtrado.columns]
+            cols_disponibles = [c for c in cols_deseadas if c in df_activos.columns]
             
-            st.dataframe(df_filtrado[cols_existentes], use_container_width=True)
+            st.subheader("🔍 Panel de Filtros Multivariable y Búsqueda Libre")
             
-            # Botón de Descargar Excel del resultado filtrado
+            f_col1, f_col2, f_col3 = st.columns([1.5, 1.5, 2])
+            
+            with f_col1:
+                # El usuario puede elegir CUALQUIER columna para filtrar
+                columna_filtro = st.selectbox(
+                    "1. Seleccione Columna para Filtrar:",
+                    options=["NINGUNO"] + cols_disponibles
+                )
+                
+            with f_col2:
+                # Se generan las opciones únicas de la columna elegida
+                if columna_filtro != "NINGUNO":
+                    opciones_valores = ["TODOS"] + sorted(list(df_activos[columna_filtro].dropna().astype(str).unique()))
+                    valor_filtro = st.selectbox(f"2. Filtrar por {columna_filtro}:", opciones_valores)
+                else:
+                    valor_filtro = "TODOS"
+                    st.selectbox("2. Valor de Filtro:", ["TODOS"], disabled=True)
+                    
+            with f_col3:
+                # Búsqueda rápida por texto libre
+                busqueda_texto = st.text_input("🔎 3. Búsqueda por Texto (Placa, Código, Marca, Modelo, etc.):").upper().strip()
+
+            # Aplicar Filtros Dinámicos
+            df_filtrado = df_activos.copy()
+            
+            if columna_filtro != "NINGUNO" and valor_filtro != "TODOS":
+                df_filtrado = df_filtrado[df_filtrado[columna_filtro].astype(str) == valor_filtro]
+                
+            if busqueda_texto:
+                # Filtra si el texto coincide en cualquiera de las columnas principales
+                mask = pd.Series(False, index=df_filtrado.index)
+                for col in cols_disponibles:
+                    mask |= df_filtrado[col].astype(str).str.contains(busqueda_texto, case=False, na=False)
+                df_filtrado = df_filtrado[mask]
+
+            st.divider()
+            
+            # Métrica de Resumen
+            m1, m2 = st.columns([1, 3])
+            with m1:
+                st.metric("Equipos Encontrados", f"{len(df_filtrado)} de {len(df_activos)}")
+            
+            st.dataframe(df_filtrado[cols_disponibles], use_container_width=True)
+            
+            # Botón para descargar exactamente el resultado que se ve en pantalla
             st.download_button(
                 label="📥 Descargar Resultado Filtrado en Excel (.xlsx)",
-                data=generar_excel_bytes(df_filtrado[cols_existentes], "Lista_Maestra_Filtrada"),
+                data=generar_excel_bytes(df_filtrado[cols_disponibles], "Flota_Filtrada"),
                 file_name=f"Lista_Maestra_Filtrada_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
