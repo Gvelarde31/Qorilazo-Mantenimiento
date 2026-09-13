@@ -22,7 +22,7 @@ except Exception:
     st.error("⚠️ Faltan los Secrets de Supabase en Streamlit Cloud.")
     st.stop()
 
-# Funciones de interacción con la API REST de Supabase
+# Funciones REST Supabase
 def consultar_tabla(nombre_tabla):
     url_endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}"
     headers = {
@@ -332,12 +332,10 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
         "✏️ Actualizar Permisos de Equipo"
     ])
 
-    # --- PESTAÑA 1: LISTA CON CÁLCULO DE DÍAS FALTANTES Y SEMÁFOROS ---
     with tab_estatus_lista:
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
             
-            # Unir con la tabla estatus_equipo
             if not df_estatus.empty:
                 df_merged = df_activos.merge(df_estatus, on="placa", how="left")
             else:
@@ -345,33 +343,54 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                 for col in ["fotocheck", "soat", "poliza", "retorqueo", "citv", "gps", "tarjeta_mercancias", "certificado_operatividad", "certificado_inspeccion", "comentario"]:
                     df_merged[col] = None
 
-            # Aplicar cálculo de Días Faltantes y Semáforo dinámico en Pandas
             documentos = [
-                ("soat", "dias_faltante_soat"),
-                ("poliza", "dias_faltante_poliza"),
-                ("retorqueo", "dias_faltante_retorqueo"),
-                ("citv", "dias_faltante_citv"),
-                ("gps", "dias_faltante_gps"),
-                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias"),
-                ("certificado_operatividad", "dias_faltante_certificado_operatividad"),
-                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion")
+                ("soat", "dias_faltante_soat", "estado_soat", "SOAT"),
+                ("poliza", "dias_faltante_poliza", "estado_poliza", "Póliza"),
+                ("retorqueo", "dias_faltante_retorqueo", "estado_retorqueo", "Retorqueo"),
+                ("citv", "dias_faltante_citv", "estado_citv", "CITV"),
+                ("gps", "dias_faltante_gps", "estado_gps", "GPS"),
+                ("tarjeta_mercancias", "dias_faltante_tarjeta_mercancias", "estado_tarjeta_mercancias", "Tarjeta Mercancías"),
+                ("certificado_operatividad", "dias_faltante_certificado_operatividad", "estado_certificado_operatividad", "Cert. Operatividad"),
+                ("certificado_inspeccion", "dias_faltante_certificado_inspeccion", "estado_certificado_inspeccion", "Cert. Inspección")
             ]
 
-            for col_fecha, col_dias in documentos:
+            criticos_totales = 0
+            alertas_totales = 0
+            vigentes_totales = 0
+
+            for col_fecha, col_dias, col_estado, _ in documentos:
                 if col_fecha in df_merged.columns:
                     calc_res = df_merged[col_fecha].apply(calcular_dias_vencimiento)
                     df_merged[col_dias] = [r[0] for r in calc_res]
-                    df_merged[f"estado_{col_fecha}"] = [r[1] for r in calc_res]
+                    df_merged[col_estado] = [r[1] for r in calc_res]
+                    
+                    criticos_totales += sum(1 for r in calc_res if "🔴" in r[1])
+                    alertas_totales += sum(1 for r in calc_res if "🟡" in r[1])
+                    vigentes_totales += sum(1 for r in calc_res if "🟢" in r[1])
 
-            st.subheader("🔍 Filtro Universal de Estatus y Permisos")
-            
+            # --- DASHBOARD SEMAFÓRICO (METRICAS RÁPIDAS) ---
+            st.subheader("🚨 Dashboard Semafórico de Documentación Minera")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Equipos Monitoreados", len(df_activos))
+            k2.metric("🔴 Alertas Críticas (≤15d)", criticos_totales)
+            k3.metric("🟡 Alertas Preventivas (16-31d)", alertas_totales)
+            k4.metric("🟢 Documentos Vigentes (≥32d)", vigentes_totales)
+            st.divider()
+
+            st.subheader("🔍 Filtro Universal y Matriz Completa")
+
+            # Columnas completas incluyendo estados semafóricos
             cols_export_estatus = [
                 "tipo_flota", "codigo_interno", "placa", "frente_asignado", "fotocheck",
-                "soat", "dias_faltante_soat", "poliza", "dias_faltante_poliza",
-                "retorqueo", "dias_faltante_retorqueo", "citv", "dias_faltante_citv",
-                "gps", "dias_faltante_gps", "tarjeta_mercancias", "dias_faltante_tarjeta_mercancias",
-                "certificado_operatividad", "dias_faltante_certificado_operatividad",
-                "certificado_inspeccion", "dias_faltante_certificado_inspeccion", "comentario"
+                "soat", "dias_faltante_soat", "estado_soat",
+                "poliza", "dias_faltante_poliza", "estado_poliza",
+                "retorqueo", "dias_faltante_retorqueo", "estado_retorqueo",
+                "citv", "dias_faltante_citv", "estado_citv",
+                "gps", "dias_faltante_gps", "estado_gps",
+                "tarjeta_mercancias", "dias_faltante_tarjeta_mercancias", "estado_tarjeta_mercancias",
+                "certificado_operatividad", "dias_faltante_certificado_operatividad", "estado_certificado_operatividad",
+                "certificado_inspeccion", "dias_faltante_certificado_inspeccion", "estado_certificado_inspeccion",
+                "comentario"
             ]
             
             cols_disp_estatus = [c for c in cols_export_estatus if c in df_merged.columns]
@@ -387,7 +406,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     val_filtro_est = "TODOS"
                     st.selectbox("2. Valor:", ["TODOS"], disabled=True)
             with c_e3:
-                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Permiso):").upper().strip()
+                txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Alerta):").upper().strip()
 
             df_est_filtrado = df_merged.copy()
             if col_filtro_est != "NINGUNO" and val_filtro_est != "TODOS":
@@ -398,13 +417,10 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     mask |= df_est_filtrado[c].astype(str).str.contains(txt_est, case=False, na=False)
                 df_est_filtrado = df_est_filtrado[mask]
 
-            st.divider()
-            st.metric("Total Equipos Evaluados", f"{len(df_est_filtrado)} de {len(df_activos)}")
-
             st.dataframe(df_est_filtrado[cols_disp_estatus], use_container_width=True)
 
             st.download_button(
-                label="📥 Descargar Reporte de Estatus en Excel (.xlsx)",
+                label="📥 Descargar Reporte de Estatus Completo en Excel (.xlsx)",
                 data=generar_excel_bytes(df_est_filtrado[cols_disp_estatus], "Estatus_Equipos"),
                 file_name=f"Estatus_Equipos_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -413,7 +429,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
         else:
             st.info("No hay equipos activos registrados en la base de datos.")
 
-    # --- PESTAÑA 2: ACTUALIZAR O REGISTRAR PERMISOS ---
     with tab_actualizar:
         st.subheader("✏️ Actualizar Fechas de Vencimiento de Permisos")
         if not df_equipos.empty:
@@ -423,7 +438,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
             eq_sel_est = st.selectbox("Seleccione el equipo a actualizar:", opciones_eq)
             placa_sel_est = eq_sel_est.split(" - ")[0].strip()
 
-            # Buscar si ya existen permisos para este equipo
             datos_previos = {}
             if not df_estatus.empty:
                 match_e = df_estatus[df_estatus["placa"] == placa_sel_est]
