@@ -149,7 +149,6 @@ def parse_fecha(fecha_val):
         return datetime.now().date()
 
 def obtener_rango_sabado_viernes(fecha_ref):
-    # Sábado previo a fecha_ref hasta el viernes siguiente
     dias_desde_sabado = (fecha_ref.weekday() - 5) % 7
     sabado = fecha_ref - timedelta(days=dias_desde_sabado)
     viernes = sabado + timedelta(days=6)
@@ -576,7 +575,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
         "📊 Consolidado Reporte Diario & Filtros de Fecha"
     ])
 
-    # --- PESTAÑA 1: FORMULARIO DE INGRESO RÉPLICA DE LA HOJA REGISTRO ---
     with tab_registro_rd:
         st.subheader("📋 Panel de Registro Diario (Ficha de Campo)")
         if df_equipos.empty:
@@ -593,7 +591,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     eq_sel_rd = st.selectbox("PLACA / SERIE *", opciones_placa)
                     placa_rd = eq_sel_rd.split(" - ")[0].strip()
                     
-                    # Auto-completado desde lista_maestra
                     info_eq = df_activos[df_activos["placa"] == placa_rd].iloc[0].to_dict()
                     cod_int_rd = info_eq.get("codigo_interno", "")
                     tipo_flota_rd = info_eq.get("tipo_flota", "")
@@ -618,7 +615,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     h_inicio = st.time_input("Hora Inicio", value=time(6, 0))
                     h_fin = st.time_input("Hora Final", value=time(17, 0))
                     
-                    # Cálculo de Horas Hombre
                     dt_start = datetime.combine(fecha_rep, h_inicio)
                     dt_end = datetime.combine(fecha_rep, h_fin)
                     duracion_hrs = round(max(0.0, (dt_end - dt_start).total_seconds() / 3600.0), 2)
@@ -639,7 +635,7 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     st.metric("Disponibilidad Mecánica (DM)", f"{int(dm_calc * 100)}%")
 
                 st.divider()
-                st.markdown("##### 🛠️ 3. Trabajos Ejcutados, Backlog e Insumos")
+                st.markdown("##### 🛠️ 3. Trabajos Ejecutados, Backlog e Insumos")
                 r7, r8 = st.columns(2)
                 with r7:
                     desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS")
@@ -656,7 +652,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 guardar_rd_btn = st.form_submit_button("💾 Guardar Parte Diario en Supabase", use_container_width=True)
 
                 if guardar_rd_btn:
-                    # timestamps para horas inicio y fin
                     str_h_inicio = f"{fecha_rep}T{h_inicio.strftime('%H:%M:%S')}"
                     str_h_fin = f"{fecha_rep}T{h_fin.strftime('%H:%M:%S')}"
 
@@ -664,7 +659,8 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "fecha_reporte": str(fecha_rep),
                         "placa": placa_rd,
                         "frente_asignado": frente_rd,
-                        "codigo": n_ot if n_ot else cod_int_rd,
+                        "numero_ot": n_ot if n_ot else "",      # Guarda Orden de Trabajo explícita
+                        "codigo": n_ot if n_ot else cod_int_rd,  # Guarda fallback en codigo
                         "estado": estado_rd,
                         "hr": hr_val,
                         "km": km_val,
@@ -688,7 +684,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {res_rd}")
 
-    # --- PESTAÑA 2: CONSOLIDADO Y FILTROS POR FECHA Y EQUIPO ---
     with tab_consulta_rd:
         st.subheader("🔍 Consulta Consolidada del Reporte Diario (`RD`)")
         st.caption("Filtre por Ciclo Semanal (Sábado a Viernes), Rango de Fechas Personalizado y/o Placa específica.")
@@ -696,7 +691,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
         if df_reportes.empty:
             st.info("No hay partes diarios registrados en la base de datos.")
         else:
-            # Enriquecer reporte con datos maestros de la placa
             if not df_equipos.empty:
                 df_rd_full = df_reportes.merge(
                     df_equipos[["placa", "codigo_interno", "tipo_flota"]],
@@ -707,7 +701,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 df_rd_full["codigo_interno"] = ""
                 df_rd_full["tipo_flota"] = ""
 
-            # Convertir fecha_reporte a datetime.date
             df_rd_full["fecha_reporte_dt"] = pd.to_datetime(df_rd_full["fecha_reporte"], errors="coerce").dt.date
 
             st.markdown("##### 📅 1. Selección de Modo de Filtro de Fechas")
@@ -739,7 +732,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             placas_disponibles_rd = ["TODOS LOS EQUIPOS"] + sorted(list(df_rd_full["placa"].dropna().astype(str).unique()))
             placa_filtro_rd = st.selectbox("Seleccione Placa Específica:", placas_disponibles_rd)
 
-            # Aplicar Filtros de Fecha y Equipo
             df_rd_filtrado = df_rd_full.copy()
 
             if fecha_inicio_filtro and fecha_fin_filtro:
@@ -751,16 +743,14 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             if placa_filtro_rd != "TODOS LOS EQUIPOS":
                 df_rd_filtrado = df_rd_filtrado[df_rd_filtrado["placa"] == placa_filtro_rd]
 
-            # Calcular columnas calculadas requeridas por la hoja RD
             df_rd_filtrado["hb"] = 10.0
             df_rd_filtrado["horas_mc"] = pd.to_numeric(df_rd_filtrado["horas_mc"], errors="coerce").fillna(0.0)
             df_rd_filtrado["dm"] = ((df_rd_filtrado["hb"] - df_rd_filtrado["horas_mc"]) / df_rd_filtrado["hb"]).round(2)
 
             st.divider()
             
-            # Orden exacto de columnas para el reporte exportable "RD"
             cols_export_rd = [
-                "codigo", "fecha_reporte", "codigo_interno", "placa", "tipo_flota",
+                "numero_ot", "codigo", "fecha_reporte", "codigo_interno", "placa", "tipo_flota",
                 "frente_asignado", "estado", "hr", "km", "tecnico_responsable",
                 "descripcion_trabajo", "backlog", "hora_inicio", "hora_fin",
                 "tipo_mantenimiento", "actividad", "hb", "horas_mc", "dm",
