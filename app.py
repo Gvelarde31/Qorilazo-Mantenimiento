@@ -670,7 +670,9 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     t_manto_prev = reg_existente.get("tipo_mantenimiento", "Preventivo")
                     idx_tm = list_tipo_manto.index(t_manto_prev) if t_manto_prev in list_tipo_manto else 0
                     tipo_manto = st.selectbox("TIPO MANTENIMIENTO *", list_tipo_manto, index=idx_tm)
-                    actividad_rd = st.text_input("ACTIVIDAD ESPECÍFICA", value=reg_existente.get("actividad", ""))
+                    
+                    # Cambio de denominación: DESCRIPCIÓN DE TRABAJOS EJECUTADOS (enlaza con columna descripcion_trabajo)
+                    desc_trabajo = st.text_input("DESCRIPCIÓN DE TRABAJOS EJECUTADOS", value=reg_existente.get("descripcion_trabajo", ""))
 
                 with r6:
                     # Regla de Horas Base HB (Opciones: 10 o 5)
@@ -686,7 +688,8 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 st.markdown("##### 🛠️ 4. Trabajos Ejecutados e Insumos")
                 r7, r8 = st.columns(2)
                 with r7:
-                    desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS", value=reg_existente.get("descripcion_trabajo", ""))
+                    # Cambio de denominación: ACTIVIDAD / DETALLE DE TRABAJO (enlaza con columna actividad)
+                    actividad_rd = st.text_area("ACTIVIDAD / DETALLE DE TRABAJO", value=reg_existente.get("actividad", ""))
                     backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
                     detalle_insumo = st.text_input("DETALLE INSUMO / REPUESTO", value=reg_existente.get("detalle_insumo", ""))
@@ -714,12 +717,12 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "hr": hr_val,
                         "km": km_val,
                         "tecnico_responsable": tec_resp,
-                        "descripcion_trabajo": desc_trabajo,
+                        "descripcion_trabajo": desc_trabajo, # Enlazado al input "DESCRIPCIÓN DE TRABAJOS EJECUTADOS"
                         "backlog": backlog_rd,
                         "hora_inicio": str_h_inicio,
                         "hora_fin": str_h_fin,
                         "tipo_mantenimiento": tipo_manto,  # "Preventivo", "Correctivo", "Implementacion"
-                        "actividad": actividad_rd,
+                        "actividad": actividad_rd,         # Enlazado al input "ACTIVIDAD / DETALLE DE TRABAJO"
                         "horas_mc": horas_mc_calc,         # Calculado: 24*(hora_fin - hora_inicio)
                         "hb": hb_sel,                      # 10 o 5
                         "dm": dm_num,                      # Calculado: (hb - horas_mc)/hb
@@ -798,7 +801,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             if placa_filtro_rd != "TODOS LOS EQUIPOS":
                 df_rd_filtrado = df_rd_filtrado[df_rd_filtrado["placa"] == placa_filtro_rd]
 
-            # Expresar la Disponibilidad Mecánica en Porcentaje %
             if "dm" in df_rd_filtrado.columns:
                 df_rd_filtrado["dm_pct"] = (pd.to_numeric(df_rd_filtrado["dm"], errors="coerce") * 100).round(0).astype(str) + "%"
             else:
