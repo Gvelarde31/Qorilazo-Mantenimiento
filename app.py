@@ -152,7 +152,6 @@ def parse_hora(hora_str, default_time):
     if not hora_str or pd.isna(hora_str) or str(hora_str).strip() == "":
         return default_time
     try:
-        # Si viene en formato ISO timestamp T10:00:00
         if "T" in str(hora_str):
             t_part = str(hora_str).split("T")[1][:8]
             return datetime.strptime(t_part, "%H:%M:%S").time()
@@ -571,11 +570,11 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         st.error(f"❌ Error al guardar en Supabase: {res_e}")
 
 # ==========================================
-# MÓDULO 3: REPORTE DIARIO (EQUIVALENTE A REGISTRO Y MA CRO BUSDARDATOS / GUARDARDATOS)
+# MÓDULO 3: REPORTE DIARIO (HOJA RD / REGISTRO)
 # ==========================================
 elif modulo == "3. Reporte Diario (Hoja RD)":
     st.header("📝 Módulo 3: Reporte Diario & Tareo de Trabajos (`reporte_diario`)")
-    st.caption("Ficha interactiva equivalente a 'REGISTRO' con auto-búsqueda por fecha y placa (Macro Buscardatos/Guardardatos).")
+    st.caption("Ficha interactiva equivalente a 'REGISTRO' con auto-búsqueda por fecha y placa.")
 
     equipos = consultar_tabla("lista_maestra")
     reportes = consultar_tabla("reporte_diario")
@@ -583,13 +582,12 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_reportes = pd.DataFrame(reportes) if reportes else pd.DataFrame()
 
-    tab_registro_rd, tab_generar_dia, tab_consulta_rd = st.tabs([
+    tab_registro_rd, tab_consulta_rd = st.tabs([
         "✍️ Ficha de Registro Diario (Buscardatos/Guardardatos)",
-        "📅 Generar Estructura Día Siguiente (agregarfec)",
         "📊 Consolidado Reporte Diario & Filtros de Fecha"
     ])
 
-    # --- PESTAÑA 1: FICHA DE CAMPO INTERACTIVA (RÉPLICA DE MACROS BUSDARDATOS Y GUARDARDATOS) ---
+    # --- PESTAÑA 1: FICHA DE CAMPO INTERACTIVA ---
     with tab_registro_rd:
         st.subheader("📋 Ficha de Campo Individual (Búsqueda y Edición Automática)")
         if df_equipos.empty:
@@ -598,16 +596,15 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             opciones_placa = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos.iterrows()]
 
-            # 1. Controles de Búsqueda Activa (Macro Buscardatos)
-            st.markdown("##### 🔎 1. Selección de Fecha y Equipo (Equivalente a D7 y D8)")
+            st.markdown("##### 🔎 1. Selección de Fecha y Equipo")
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                fecha_sel = st.date_input("FECHA (D7) *", datetime.now().date())
+                fecha_sel = st.date_input("FECHA del Reporte *", datetime.now().date())
             with col_b2:
-                eq_sel_rd = st.selectbox("CÓDIGO / PLACA EQUIPO (D8) *", opciones_placa)
+                eq_sel_rd = st.selectbox("CÓDIGO / PLACA EQUIPO *", opciones_placa)
                 placa_sel_rd = eq_sel_rd.split(" - ")[0].strip()
 
-            # Consultar si ya existe un registro guardado en Supabase para esta combinación (Macro Buscardatos)
+            # Consultar si ya existe un registro guardado para esta combinación
             reg_existente = {}
             if not df_reportes.empty:
                 df_reportes["fecha_reporte_dt"] = pd.to_datetime(df_reportes["fecha_reporte"], errors="coerce").dt.date
@@ -634,15 +631,22 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 with r1:
                     st.text_input("Código Interno", value=cod_int_rd, disabled=True)
                     st.text_input("Equipo / Flota", value=tipo_flota_rd, disabled=True)
-                    n_ot = st.text_input("ORDEN DE TRABAJO (D9 / N° OT)", value=reg_existente.get("numero_ot", reg_existente.get("codigo", "")))
+                    n_ot = st.text_input("ORDEN DE TRABAJO (N° OT)", value=reg_existente.get("numero_ot", ""))
                 with r2:
                     frente_rd = st.text_input("FRENTE TRABAJO", value=frente_default)
-                    estado_rd = st.selectbox("ESTADO DE MÁQUINA", ["Operativo", "Inoperativo", "Stand By"], 
-                                             index=["Operativo", "Inoperativo", "Stand By"].index(reg_existente.get("estado", "Operativo")) if reg_existente.get("estado") in ["Operativo", "Inoperativo", "Stand By"] else 0)
-                    tec_resp = st.text_input("Técnico / Operador Responsable (D15)", value=reg_existente.get("tecnico_responsable", ""))
+                    
+                    # Regla de Código: 1 (Operativo), 2 (Inoperativo)
+                    cod_estado_prev = str(reg_existente.get("codigo", "1")).strip()
+                    idx_cod = 0 if cod_estado_prev in ["1", "1.0"] else 1
+                    cod_estado_sel = st.selectbox("CÓDIGO DE ESTADO *", ["1 - Operativo", "2 - Inoperativo"], index=idx_cod)
+                    cod_estado_val = "1" if "1" in cod_estado_sel else "2"
+                    estado_auto = "Operativo" if cod_estado_val == "1" else "Inoperativo"
+                    
+                    st.info(f"📌 **Estado Reflejado:** `{estado_auto}`")
+                    tec_resp = st.text_input("Técnico / Operador Responsable", value=reg_existente.get("tecnico_responsable", ""))
                 with r3:
-                    hr_val = st.number_input("Horómetro (HR - D10)", min_value=0.0, step=0.1, value=float(reg_existente.get("hr", 0.0)))
-                    km_val = st.number_input("Kilometraje (KM - D11)", min_value=0.0, step=0.1, value=float(reg_existente.get("km", 0.0)))
+                    hr_val = st.number_input("Horómetro (HR)", min_value=0.0, step=0.1, value=float(reg_existente.get("hr", 0.0)))
+                    km_val = st.number_input("Kilometraje (KM)", min_value=0.0, step=0.1, value=float(reg_existente.get("km", 0.0)))
 
                 st.divider()
                 st.markdown("##### ⏱️ 3. Horarios y Mantenimiento")
@@ -650,39 +654,51 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 with r4:
                     t_inc = parse_hora(reg_existente.get("hora_inicio"), time(6, 0))
                     t_fn = parse_hora(reg_existente.get("hora_fin"), time(17, 0))
-                    h_inicio = st.time_input("Hora Inicio (D12)", value=t_inc)
-                    h_fin = st.time_input("Hora Final (D13)", value=t_fn)
+                    h_inicio = st.time_input("Hora Inicio", value=t_inc)
+                    h_fin = st.time_input("Hora Final", value=t_fn)
+                    
+                    # Cálculo exacto de horas_mc = 24 * (Hora Fin - Hora Inicio)
+                    dt_start = datetime.combine(fecha_sel, h_inicio)
+                    dt_end = datetime.combine(fecha_sel, h_fin)
+                    diff_seconds = (dt_end - dt_start).total_seconds()
+                    horas_mc_calc = round(max(0.0, diff_seconds / 3600.0), 2)
+                    st.info(f"⏱️ **Horas MC Calculadas:** `{horas_mc_calc} h`")
+
                 with r5:
-                    tipo_manto = st.selectbox("TIPO MANTTO (D14)", [
-                        "Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)",
-                        "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)",
-                        "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"
-                    ], index=0 if not reg_existente.get("tipo_mantenimiento") else ["Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)", "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)", "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"].index(reg_existente.get("tipo_mantenimiento")) if reg_existente.get("tipo_mantenimiento") in ["Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)", "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)", "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"] else 0)
-                    actividad_rd = st.text_input("ACTIVIDAD (C16)", value=reg_existente.get("actividad", ""))
-                    horas_mc = st.number_input("Horas MC (G14)", min_value=0.0, max_value=24.0, step=0.5, value=float(reg_existente.get("horas_mc", 0.0)))
+                    # Regla de Tipo Mantenimiento
+                    list_tipo_manto = ["Preventivo", "Correctivo", "Implementacion"]
+                    t_manto_prev = reg_existente.get("tipo_mantenimiento", "Preventivo")
+                    idx_tm = list_tipo_manto.index(t_manto_prev) if t_manto_prev in list_tipo_manto else 0
+                    tipo_manto = st.selectbox("TIPO MANTENIMIENTO *", list_tipo_manto, index=idx_tm)
+                    actividad_rd = st.text_input("ACTIVIDAD ESPECÍFICA", value=reg_existente.get("actividad", ""))
+
                 with r6:
-                    hb_val = 10.0
-                    st.number_input("Horas Base (HB - G13)", value=hb_val, disabled=True)
-                    dm_calc = round(max(0.0, (hb_val - horas_mc) / hb_val), 2)
-                    st.metric("Disponibilidad Mecánica (DM - G15)", f"{int(dm_calc * 100)}%")
+                    # Regla de Horas Base HB (Opciones: 10 o 5)
+                    hb_prev = int(float(reg_existente.get("hb", 10))) if reg_existente.get("hb") else 10
+                    idx_hb = 0 if hb_prev == 10 else 1
+                    hb_sel = st.selectbox("HORAS BASE (HB) *", [10, 5], index=idx_hb)
+                    
+                    # Cálculo exacto de DM = (HB - Horas MC) / HB
+                    dm_num = round(max(0.0, (hb_sel - horas_mc_calc) / hb_sel), 2) if hb_sel > 0 else 1.0
+                    st.metric("Disponibilidad Mecánica (DM)", f"{int(dm_num * 100)}%")
 
                 st.divider()
-                st.markdown("##### 🛠️ 4. Trabajos Ejcutados e Insumos")
+                st.markdown("##### 🛠️ 4. Trabajos Ejecutados e Insumos")
                 r7, r8 = st.columns(2)
                 with r7:
-                    desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS (D16)", value=reg_existente.get("descripcion_trabajo", ""))
+                    desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS", value=reg_existente.get("descripcion_trabajo", ""))
                     backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
-                    detalle_insumo = st.text_input("DETALLE INSUMO / REPUESTO (C17)", value=reg_existente.get("detalle_insumo", ""))
+                    detalle_insumo = st.text_input("DETALLE INSUMO / REPUESTO", value=reg_existente.get("detalle_insumo", ""))
                     c_p1, c_p2 = st.columns(2)
                     with c_p1:
                         precio_mo = st.number_input("Precio Mano de Obra (S/.)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio", 0.0)))
                     with c_p2:
-                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/. - D17)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio_insumo", 0.0)))
+                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/.)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio_insumo", 0.0)))
 
                 st.divider()
                 
-                guardar_rd_btn = st.form_submit_button("💾 Guardardatos (Guardar / Actualizar Parte)", use_container_width=True)
+                guardar_rd_btn = st.form_submit_button("💾 Guardar Parte Diario en Supabase", use_container_width=True)
 
                 if guardar_rd_btn:
                     str_h_inicio = f"{fecha_sel}T{h_inicio.strftime('%H:%M:%S')}"
@@ -693,8 +709,8 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "placa": placa_sel_rd,
                         "frente_asignado": frente_rd,
                         "numero_ot": n_ot if n_ot else "",
-                        "codigo": n_ot if n_ot else cod_int_rd,
-                        "estado": estado_rd,
+                        "codigo": cod_estado_val,          # Guarda "1" o "2"
+                        "estado": estado_auto,             # Guarda "Operativo" u "Inoperativo"
                         "hr": hr_val,
                         "km": km_val,
                         "tecnico_responsable": tec_resp,
@@ -702,15 +718,16 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "backlog": backlog_rd,
                         "hora_inicio": str_h_inicio,
                         "hora_fin": str_h_fin,
-                        "tipo_mantenimiento": tipo_manto,
+                        "tipo_mantenimiento": tipo_manto,  # "Preventivo", "Correctivo", "Implementacion"
                         "actividad": actividad_rd,
-                        "horas_mc": horas_mc,
+                        "horas_mc": horas_mc_calc,         # Calculado: 24*(hora_fin - hora_inicio)
+                        "hb": hb_sel,                      # 10 o 5
+                        "dm": dm_num,                      # Calculado: (hb - horas_mc)/hb
                         "precio": precio_mo,
                         "detalle_insumo": detalle_insumo,
                         "precio_insumo": precio_insumo
                     }
 
-                    # Si existe id, se actualiza, si no, se inserta nuevo
                     if "id" in reg_existente:
                         nuevo_rd["id"] = reg_existente["id"]
 
@@ -721,47 +738,7 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     else:
                         st.error(f"❌ Error al guardar datos en Supabase: {res_rd}")
 
-    # --- PESTAÑA 2: MACRO AGREGARFEC (GENERACIÓN AUTOMÁTICA DE DÍA SIGUIENTE) ---
-    with tab_generar_dia:
-        st.subheader("📅 Generar Estructura para el Día Siguiente (Macro `agregarfec`)")
-        st.caption("Esta herramienta busca la última fecha registrada en Supabase y genera automáticamente los registros base para toda la flota activa con fecha $Fecha + 1$.")
-
-        if df_reportes.empty:
-            st.info("No hay fechas registradas aún en el Reporte Diario para proyectar.")
-        else:
-            df_reportes["fecha_reporte_dt"] = pd.to_datetime(df_reportes["fecha_reporte"], errors="coerce").dt.date
-            fec_max = df_reportes["fecha_reporte_dt"].max()
-            fec_siguiente = fec_max + timedelta(days=1)
-
-            st.metric("Última Fecha Registrada", str(fec_max))
-            st.metric("Siguiente Fecha a Crear", str(fec_siguiente))
-
-            st.divider()
-            if st.button("🚀 Confirmar y Ejecutar `agregarfec` (Crear Día Siguiente)", use_container_width=True):
-                df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"] if not df_equipos.empty else pd.DataFrame()
-                
-                if df_activos.empty:
-                    st.error("❌ No hay equipos en la Lista Maestra Activa para generar el día.")
-                else:
-                    registros_creados = 0
-                    for _, eq in df_activos.iterrows():
-                        reg_base = {
-                            "fecha_reporte": str(fec_siguiente),
-                            "placa": eq["placa"],
-                            "frente_asignado": eq.get("frente_asignado", "Frente Principal"),
-                            "codigo": eq.get("codigo_interno", ""),
-                            "estado": "Operativo",
-                            "hr": 0.0,
-                            "km": 0.0,
-                            "horas_mc": 0.0
-                        }
-                        insertar_o_actualizar("reporte_diario", reg_base)
-                        registros_creados += 1
-
-                    st.success(f"✅ ¡Macro ejecutada con éxito! La fecha agregada es: `{fec_siguiente}` con {registros_creados} equipos activos en blanco.")
-                    st.rerun()
-
-    # --- PESTAÑA 3: CONSOLIDADO Y FILTROS POR FECHA Y EQUIPO ---
+    # --- PESTAÑA 2: CONSOLIDADO Y FILTROS POR FECHA Y EQUIPO ---
     with tab_consulta_rd:
         st.subheader("🔍 Consulta Consolidada del Reporte Diario (`RD`)")
         st.caption("Filtre por Ciclo Semanal (Sábado a Viernes), Rango de Fechas Personalizado y/o Placa específica.")
@@ -821,9 +798,11 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             if placa_filtro_rd != "TODOS LOS EQUIPOS":
                 df_rd_filtrado = df_rd_filtrado[df_rd_filtrado["placa"] == placa_filtro_rd]
 
-            df_rd_filtrado["hb"] = 10.0
-            df_rd_filtrado["horas_mc"] = pd.to_numeric(df_rd_filtrado["horas_mc"], errors="coerce").fillna(0.0)
-            df_rd_filtrado["dm"] = ((df_rd_filtrado["hb"] - df_rd_filtrado["horas_mc"]) / df_rd_filtrado["hb"]).round(2)
+            # Expresar la Disponibilidad Mecánica en Porcentaje %
+            if "dm" in df_rd_filtrado.columns:
+                df_rd_filtrado["dm_pct"] = (pd.to_numeric(df_rd_filtrado["dm"], errors="coerce") * 100).round(0).astype(str) + "%"
+            else:
+                df_rd_filtrado["dm_pct"] = "100%"
 
             st.divider()
             
@@ -831,7 +810,7 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 "numero_ot", "codigo", "fecha_reporte", "codigo_interno", "placa", "tipo_flota",
                 "frente_asignado", "estado", "hr", "km", "tecnico_responsable",
                 "descripcion_trabajo", "backlog", "hora_inicio", "hora_fin",
-                "tipo_mantenimiento", "actividad", "hb", "horas_mc", "dm",
+                "tipo_mantenimiento", "actividad", "hb", "horas_mc", "dm_pct",
                 "precio", "detalle_insumo", "precio_insumo"
             ]
 
