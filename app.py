@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta, time
 import io
 import unicodedata
 import re
@@ -53,6 +53,20 @@ def insertar_o_actualizar(nombre_tabla, datos):
     except Exception as e:
         return False, str(e)
 
+def insertar_registro(nombre_tabla, datos):
+    url_endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    try:
+        response = requests.post(url_endpoint, headers=headers, json=datos, timeout=10)
+        return response.status_code in [200, 201], response.json() if response.status_code in [200, 201] else response.text
+    except Exception as e:
+        return False, str(e)
+
 def actualizar_estado_equipo(placa, nuevo_estado):
     url_endpoint = f"{SUPABASE_URL}/rest/v1/lista_maestra?placa=eq.{placa}"
     headers = {
@@ -94,8 +108,6 @@ def aplicar_busqueda_libre(df, columnas, query_texto):
         return df
 
     mask = pd.Series(False, index=df.index)
-    
-    # Si la búsqueda es de 2 caracteres o menos (ej: "SI", "NO"), buscar como palabra completa
     es_palabra_corta = len(q_norm) <= 2
     pattern = r'\b' + re.escape(q_norm) + r'\b' if es_palabra_corta else q_norm
 
@@ -136,13 +148,20 @@ def parse_fecha(fecha_val):
     except Exception:
         return datetime.now().date()
 
+def obtener_rango_sabado_viernes(fecha_ref):
+    # Sábado previo a fecha_ref hasta el viernes siguiente
+    dias_desde_sabado = (fecha_ref.weekday() - 5) % 7
+    sabado = fecha_ref - timedelta(days=dias_desde_sabado)
+    viernes = sabado + timedelta(days=6)
+    return sabado, viernes
+
 # Menú Lateral
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
     [
         "1. Lista Maestra (Alta y Baja)",
         "2. Estatus Equipo (Acreditaciones)",
-        "3. Reporte Diario (En desarrollo)",
+        "3. Reporte Diario (Hoja RD)",
         "4. Programa Mantenimiento (En desarrollo)",
         "5. Vale de Combustible (En desarrollo)",
         "6. Registro Cisterna (En desarrollo)",
@@ -538,6 +557,228 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         st.rerun()
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {res_e}")
+
+# ==========================================
+# MÓDULO 3: REPORTE DIARIO (HOJA RD / REGISTRO)
+# ==========================================
+elif modulo == "3. Reporte Diario (Hoja RD)":
+    st.header("📝 Módulo 3: Reporte Diario & Tareo de Trabajos (`reporte_diario`)")
+    st.caption("Ficha de ingreso réplica de la hoja 'REGISTRO' y exportación filtrada conforme al formato 'RD'.")
+
+    equipos = consultar_tabla("lista_maestra")
+    reportes = consultar_tabla("reporte_diario")
+
+    df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+    df_reportes = pd.DataFrame(reportes) if reportes else pd.DataFrame()
+
+    tab_registro_rd, tab_consulta_rd = st.tabs([
+        "✍️ Registrar Trabajo Diario (Ficha REGISTRO)",
+        "📊 Consolidado Reporte Diario & Filtros de Fecha"
+    ])
+
+    # --- PESTAÑA 1: FORMULARIO DE INGRESO RÉPLICA DE LA HOJA REGISTRO ---
+    with tab_registro_rd:
+        st.subheader("📋 Panel de Registro Diario (Ficha de Campo)")
+        if df_equipos.empty:
+            st.warning("⚠️ Debe registrar equipos en la Lista Maestra antes de ingresar partes diarios.")
+        else:
+            df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
+            opciones_placa = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos.iterrows()]
+
+            with st.form("form_registro_diario", clear_on_submit=True):
+                st.markdown("##### 🚜 1. Información de la Máquina")
+                r1, r2, r3 = st.columns(3)
+                with r1:
+                    fecha_rep = st.date_input("FECHA del Trabajo *", datetime.now().date())
+                    eq_sel_rd = st.selectbox("PLACA / SERIE *", opciones_placa)
+                    placa_rd = eq_sel_rd.split(" - ")[0].strip()
+                    
+                    # Auto-completado desde lista_maestra
+                    info_eq = df_activos[df_activos["placa"] == placa_rd].iloc[0].to_dict()
+                    cod_int_rd = info_eq.get("codigo_interno", "")
+                    tipo_flota_rd = info_eq.get("tipo_flota", "")
+                    frente_default = info_eq.get("frente_asignado", "Frente Principal")
+
+                    st.info(f"📌 **Código Interno:** `{cod_int_rd}` | **Equipo:** `{tipo_flota_rd}`")
+
+                with r2:
+                    frente_rd = st.text_input("FRENTE TRABAJO", value=frente_default)
+                    n_ot = st.text_input("ORDEN DE TRABAJO (N° OT)")
+                    estado_rd = st.selectbox("ESTADO DE MÁQUINA", ["Operativo", "Inoperativo", "Stand By"])
+
+                with r3:
+                    hr_val = st.number_input("Horómetro (HR)", min_value=0.0, step=0.1, value=0.0)
+                    km_val = st.number_input("Kilometraje (KM)", min_value=0.0, step=0.1, value=0.0)
+                    tec_resp = st.text_input("Técnico / Operador Responsable")
+
+                st.divider()
+                st.markdown("##### ⏱️ 2. Horario de Trabajo y Mantenimiento")
+                r4, r5, r6 = st.columns(3)
+                with r4:
+                    h_inicio = st.time_input("Hora Inicio", value=time(6, 0))
+                    h_fin = st.time_input("Hora Final", value=time(17, 0))
+                    
+                    # Cálculo de Horas Hombre
+                    dt_start = datetime.combine(fecha_rep, h_inicio)
+                    dt_end = datetime.combine(fecha_rep, h_fin)
+                    duracion_hrs = round(max(0.0, (dt_end - dt_start).total_seconds() / 3600.0), 2)
+                    st.success(f"⏱️ **Duración Obra:** `{duracion_hrs} Horas`")
+
+                with r5:
+                    tipo_manto = st.selectbox("TIPO MANTENIMIENTO", [
+                        "Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)",
+                        "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)",
+                        "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"
+                    ])
+                    actividad_rd = st.text_input("ACTIVIDAD ESPECÍFICA")
+                    horas_mc = st.number_input("Horas Mantenimiento Correctivo (Horas MC)", min_value=0.0, max_value=24.0, step=0.5, value=0.0)
+
+                with r6:
+                    hb_val = st.number_input("Horas Base Turno (HB)", min_value=1.0, max_value=24.0, step=1.0, value=10.0)
+                    dm_calc = round(max(0.0, (hb_val - horas_mc) / hb_val), 2) if hb_val > 0 else 1.0
+                    st.metric("Disponibilidad Mecánica (DM)", f"{int(dm_calc * 100)}%")
+
+                st.divider()
+                st.markdown("##### 🛠️ 3. Trabajos Ejcutados, Backlog e Insumos")
+                r7, r8 = st.columns(2)
+                with r7:
+                    desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS")
+                    backlog_rd = st.text_input("BACKLOG / OBSERVACIONES PENDIENTES")
+                with r8:
+                    detalle_insumo = st.text_input("DETALLE INSUMO / REPUESTO")
+                    c_p1, c_p2 = st.columns(2)
+                    with c_p1:
+                        precio_mo = st.number_input("Costo Mano de Obra (S/.)", min_value=0.0, step=10.0, value=0.0)
+                    with c_p2:
+                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/.)", min_value=0.0, step=10.0, value=0.0)
+
+                st.divider()
+                guardar_rd_btn = st.form_submit_button("💾 Guardar Parte Diario en Supabase", use_container_width=True)
+
+                if guardar_rd_btn:
+                    # timestamps para horas inicio y fin
+                    str_h_inicio = f"{fecha_rep}T{h_inicio.strftime('%H:%M:%S')}"
+                    str_h_fin = f"{fecha_rep}T{h_fin.strftime('%H:%M:%S')}"
+
+                    nuevo_rd = {
+                        "fecha_reporte": str(fecha_rep),
+                        "placa": placa_rd,
+                        "frente_asignado": frente_rd,
+                        "codigo": n_ot if n_ot else cod_int_rd,
+                        "estado": estado_rd,
+                        "hr": hr_val,
+                        "km": km_val,
+                        "tecnico_responsable": tec_resp,
+                        "descripcion_trabajo": desc_trabajo,
+                        "backlog": backlog_rd,
+                        "hora_inicio": str_h_inicio,
+                        "hora_fin": str_h_fin,
+                        "tipo_mantenimiento": tipo_manto,
+                        "actividad": actividad_rd,
+                        "horas_mc": horas_mc,
+                        "precio": precio_mo,
+                        "detalle_insumo": detalle_insumo,
+                        "precio_insumo": precio_insumo
+                    }
+
+                    exito_rd, res_rd = insertar_registro("reporte_diario", nuevo_rd)
+                    if exito_rd:
+                        st.success(f"✅ Parte Diario registrado correctamente para la Placa `{placa_rd}`.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al guardar en Supabase: {res_rd}")
+
+    # --- PESTAÑA 2: CONSOLIDADO Y FILTROS POR FECHA Y EQUIPO ---
+    with tab_consulta_rd:
+        st.subheader("🔍 Consulta Consolidada del Reporte Diario (`RD`)")
+        st.caption("Filtre por Ciclo Semanal (Sábado a Viernes), Rango de Fechas Personalizado y/o Placa específica.")
+
+        if df_reportes.empty:
+            st.info("No hay partes diarios registrados en la base de datos.")
+        else:
+            # Enriquecer reporte con datos maestros de la placa
+            if not df_equipos.empty:
+                df_rd_full = df_reportes.merge(
+                    df_equipos[["placa", "codigo_interno", "tipo_flota"]],
+                    on="placa", how="left"
+                )
+            else:
+                df_rd_full = df_reportes.copy()
+                df_rd_full["codigo_interno"] = ""
+                df_rd_full["tipo_flota"] = ""
+
+            # Convertir fecha_reporte a datetime.date
+            df_rd_full["fecha_reporte_dt"] = pd.to_datetime(df_rd_full["fecha_reporte"], errors="coerce").dt.date
+
+            st.markdown("##### 📅 1. Selección de Modo de Filtro de Fechas")
+            modo_fecha = st.radio(
+                "Modo de Filtro de Fecha:",
+                ["Semana Operativa (Sábado a Viernes)", "Rango de Fechas Personalizado (ej. 24 Ene a 24 Feb)", "Todos los Registros"],
+                horizontal=True
+            )
+
+            hoy = datetime.now().date()
+            if modo_fecha == "Semana Operativa (Sábado a Viernes)":
+                sab_default, vie_default = obtener_rango_sabado_viernes(hoy)
+                c_f1, c_f2 = st.columns(2)
+                with c_f1:
+                    fecha_inicio_filtro = st.date_input("Sábado de Inicio de Semana:", value=sab_default)
+                with c_f2:
+                    fecha_fin_filtro = st.date_input("Viernes de Cierre de Semana:", value=vie_default)
+            elif modo_fecha == "Rango de Fechas Personalizado (ej. 24 Ene a 24 Feb)":
+                c_f1, c_f2 = st.columns(2)
+                with c_f1:
+                    fecha_inicio_filtro = st.date_input("Fecha Inicio Corte:", value=hoy - timedelta(days=30))
+                with c_f2:
+                    fecha_fin_filtro = st.date_input("Fecha Fin Corte:", value=hoy)
+            else:
+                fecha_inicio_filtro = None
+                fecha_fin_filtro = None
+
+            st.markdown("##### 🚜 2. Filtro por Equipo / Placa Específica")
+            placas_disponibles_rd = ["TODOS LOS EQUIPOS"] + sorted(list(df_rd_full["placa"].dropna().astype(str).unique()))
+            placa_filtro_rd = st.selectbox("Seleccione Placa Específica:", placas_disponibles_rd)
+
+            # Aplicar Filtros de Fecha y Equipo
+            df_rd_filtrado = df_rd_full.copy()
+
+            if fecha_inicio_filtro and fecha_fin_filtro:
+                df_rd_filtrado = df_rd_filtrado[
+                    (df_rd_filtrado["fecha_reporte_dt"] >= fecha_inicio_filtro) &
+                    (df_rd_filtrado["fecha_reporte_dt"] <= fecha_fin_filtro)
+                ]
+
+            if placa_filtro_rd != "TODOS LOS EQUIPOS":
+                df_rd_filtrado = df_rd_filtrado[df_rd_filtrado["placa"] == placa_filtro_rd]
+
+            # Calcular columnas calculadas requeridas por la hoja RD
+            df_rd_filtrado["hb"] = 10.0
+            df_rd_filtrado["horas_mc"] = pd.to_numeric(df_rd_filtrado["horas_mc"], errors="coerce").fillna(0.0)
+            df_rd_filtrado["dm"] = ((df_rd_filtrado["hb"] - df_rd_filtrado["horas_mc"]) / df_rd_filtrado["hb"]).round(2)
+
+            st.divider()
+            
+            # Orden exacto de columnas para el reporte exportable "RD"
+            cols_export_rd = [
+                "codigo", "fecha_reporte", "codigo_interno", "placa", "tipo_flota",
+                "frente_asignado", "estado", "hr", "km", "tecnico_responsable",
+                "descripcion_trabajo", "backlog", "hora_inicio", "hora_fin",
+                "tipo_mantenimiento", "actividad", "hb", "horas_mc", "dm",
+                "precio", "detalle_insumo", "precio_insumo"
+            ]
+
+            cols_disp_rd = [c for c in cols_export_rd if c in df_rd_filtrado.columns]
+
+            st.metric("Registros de Trabajo Encontrados", len(df_rd_filtrado))
+            st.dataframe(df_rd_filtrado[cols_disp_rd], use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Reporte Diario Consolidado (Formato RD) en Excel (.xlsx)",
+                data=generar_excel_bytes(df_rd_filtrado[cols_disp_rd], "RD_Reporte_Diario"),
+                file_name=f"Reporte_Diario_EMQ_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
 else:
     st.info("Módulo en desarrollo para la siguiente fase de revisión.")
