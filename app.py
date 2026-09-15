@@ -148,6 +148,19 @@ def parse_fecha(fecha_val):
     except Exception:
         return datetime.now().date()
 
+def parse_hora(hora_str, default_time):
+    if not hora_str or pd.isna(hora_str) or str(hora_str).strip() == "":
+        return default_time
+    try:
+        # Si viene en formato ISO timestamp T10:00:00
+        if "T" in str(hora_str):
+            t_part = str(hora_str).split("T")[1][:8]
+            return datetime.strptime(t_part, "%H:%M:%S").time()
+        else:
+            return datetime.strptime(str(hora_str)[:8], "%H:%M:%S").time()
+    except Exception:
+        return default_time
+
 def obtener_rango_sabado_viernes(fecha_ref):
     dias_desde_sabado = (fecha_ref.weekday() - 5) % 7
     sabado = fecha_ref - timedelta(days=dias_desde_sabado)
@@ -558,11 +571,11 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         st.error(f"❌ Error al guardar en Supabase: {res_e}")
 
 # ==========================================
-# MÓDULO 3: REPORTE DIARIO (HOJA RD / REGISTRO)
+# MÓDULO 3: REPORTE DIARIO (EQUIVALENTE A REGISTRO Y MA CRO BUSDARDATOS / GUARDARDATOS)
 # ==========================================
 elif modulo == "3. Reporte Diario (Hoja RD)":
     st.header("📝 Módulo 3: Reporte Diario & Tareo de Trabajos (`reporte_diario`)")
-    st.caption("Ficha de ingreso réplica de la hoja 'REGISTRO' y exportación filtrada conforme al formato 'RD'.")
+    st.caption("Ficha interactiva equivalente a 'REGISTRO' con auto-búsqueda por fecha y placa (Macro Buscardatos/Guardardatos).")
 
     equipos = consultar_tabla("lista_maestra")
     reportes = consultar_tabla("reporte_diario")
@@ -570,97 +583,117 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_reportes = pd.DataFrame(reportes) if reportes else pd.DataFrame()
 
-    tab_registro_rd, tab_consulta_rd = st.tabs([
-        "✍️ Registrar Trabajo Diario (Ficha REGISTRO)",
+    tab_registro_rd, tab_generar_dia, tab_consulta_rd = st.tabs([
+        "✍️ Ficha de Registro Diario (Buscardatos/Guardardatos)",
+        "📅 Generar Estructura Día Siguiente (agregarfec)",
         "📊 Consolidado Reporte Diario & Filtros de Fecha"
     ])
 
+    # --- PESTAÑA 1: FICHA DE CAMPO INTERACTIVA (RÉPLICA DE MACROS BUSDARDATOS Y GUARDARDATOS) ---
     with tab_registro_rd:
-        st.subheader("📋 Panel de Registro Diario (Ficha de Campo)")
+        st.subheader("📋 Ficha de Campo Individual (Búsqueda y Edición Automática)")
         if df_equipos.empty:
             st.warning("⚠️ Debe registrar equipos en la Lista Maestra antes de ingresar partes diarios.")
         else:
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             opciones_placa = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos.iterrows()]
 
-            with st.form("form_registro_diario", clear_on_submit=True):
-                st.markdown("##### 🚜 1. Información de la Máquina")
+            # 1. Controles de Búsqueda Activa (Macro Buscardatos)
+            st.markdown("##### 🔎 1. Selección de Fecha y Equipo (Equivalente a D7 y D8)")
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                fecha_sel = st.date_input("FECHA (D7) *", datetime.now().date())
+            with col_b2:
+                eq_sel_rd = st.selectbox("CÓDIGO / PLACA EQUIPO (D8) *", opciones_placa)
+                placa_sel_rd = eq_sel_rd.split(" - ")[0].strip()
+
+            # Consultar si ya existe un registro guardado en Supabase para esta combinación (Macro Buscardatos)
+            reg_existente = {}
+            if not df_reportes.empty:
+                df_reportes["fecha_reporte_dt"] = pd.to_datetime(df_reportes["fecha_reporte"], errors="coerce").dt.date
+                match_rd = df_reportes[
+                    (df_reportes["fecha_reporte_dt"] == fecha_sel) & 
+                    (df_reportes["placa"] == placa_sel_rd)
+                ]
+                if not match_rd.empty:
+                    reg_existente = match_rd.iloc[0].to_dict()
+                    st.info("ℹ️ **Registro Encontrado:** Se cargaron los datos guardados anteriormente para este día y equipo. Puede editarlos directamente.")
+                else:
+                    st.success("✨ **Registro Nuevo:** No existen datos previos para este día. Complete la ficha para guardar un nuevo reporte.")
+
+            # Información de máquina heredada de Lista Maestra
+            info_eq = df_activos[df_activos["placa"] == placa_sel_rd].iloc[0].to_dict()
+            cod_int_rd = info_eq.get("codigo_interno", "")
+            tipo_flota_rd = info_eq.get("tipo_flota", "")
+            frente_default = reg_existente.get("frente_asignado", info_eq.get("frente_asignado", "Frente Principal"))
+
+            # Formulario de Ingreso y Edición
+            with st.form("form_registro_diario_vba", clear_on_submit=False):
+                st.markdown("##### 🚜 2. Información Operativa y de Máquina")
                 r1, r2, r3 = st.columns(3)
                 with r1:
-                    fecha_rep = st.date_input("FECHA del Trabajo *", datetime.now().date())
-                    eq_sel_rd = st.selectbox("PLACA / SERIE *", opciones_placa)
-                    placa_rd = eq_sel_rd.split(" - ")[0].strip()
-                    
-                    info_eq = df_activos[df_activos["placa"] == placa_rd].iloc[0].to_dict()
-                    cod_int_rd = info_eq.get("codigo_interno", "")
-                    tipo_flota_rd = info_eq.get("tipo_flota", "")
-                    frente_default = info_eq.get("frente_asignado", "Frente Principal")
-
-                    st.info(f"📌 **Código Interno:** `{cod_int_rd}` | **Equipo:** `{tipo_flota_rd}`")
-
+                    st.text_input("Código Interno", value=cod_int_rd, disabled=True)
+                    st.text_input("Equipo / Flota", value=tipo_flota_rd, disabled=True)
+                    n_ot = st.text_input("ORDEN DE TRABAJO (D9 / N° OT)", value=reg_existente.get("numero_ot", reg_existente.get("codigo", "")))
                 with r2:
                     frente_rd = st.text_input("FRENTE TRABAJO", value=frente_default)
-                    n_ot = st.text_input("ORDEN DE TRABAJO (N° OT)")
-                    estado_rd = st.selectbox("ESTADO DE MÁQUINA", ["Operativo", "Inoperativo", "Stand By"])
-
+                    estado_rd = st.selectbox("ESTADO DE MÁQUINA", ["Operativo", "Inoperativo", "Stand By"], 
+                                             index=["Operativo", "Inoperativo", "Stand By"].index(reg_existente.get("estado", "Operativo")) if reg_existente.get("estado") in ["Operativo", "Inoperativo", "Stand By"] else 0)
+                    tec_resp = st.text_input("Técnico / Operador Responsable (D15)", value=reg_existente.get("tecnico_responsable", ""))
                 with r3:
-                    hr_val = st.number_input("Horómetro (HR)", min_value=0.0, step=0.1, value=0.0)
-                    km_val = st.number_input("Kilometraje (KM)", min_value=0.0, step=0.1, value=0.0)
-                    tec_resp = st.text_input("Técnico / Operador Responsable")
+                    hr_val = st.number_input("Horómetro (HR - D10)", min_value=0.0, step=0.1, value=float(reg_existente.get("hr", 0.0)))
+                    km_val = st.number_input("Kilometraje (KM - D11)", min_value=0.0, step=0.1, value=float(reg_existente.get("km", 0.0)))
 
                 st.divider()
-                st.markdown("##### ⏱️ 2. Horario de Trabajo y Mantenimiento")
+                st.markdown("##### ⏱️ 3. Horarios y Mantenimiento")
                 r4, r5, r6 = st.columns(3)
                 with r4:
-                    h_inicio = st.time_input("Hora Inicio", value=time(6, 0))
-                    h_fin = st.time_input("Hora Final", value=time(17, 0))
-                    
-                    dt_start = datetime.combine(fecha_rep, h_inicio)
-                    dt_end = datetime.combine(fecha_rep, h_fin)
-                    duracion_hrs = round(max(0.0, (dt_end - dt_start).total_seconds() / 3600.0), 2)
-                    st.success(f"⏱️ **Duración Obra:** `{duracion_hrs} Horas`")
-
+                    t_inc = parse_hora(reg_existente.get("hora_inicio"), time(6, 0))
+                    t_fn = parse_hora(reg_existente.get("hora_fin"), time(17, 0))
+                    h_inicio = st.time_input("Hora Inicio (D12)", value=t_inc)
+                    h_fin = st.time_input("Hora Final (D13)", value=t_fn)
                 with r5:
-                    tipo_manto = st.selectbox("TIPO MANTENIMIENTO", [
+                    tipo_manto = st.selectbox("TIPO MANTTO (D14)", [
                         "Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)",
                         "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)",
                         "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"
-                    ])
-                    actividad_rd = st.text_input("ACTIVIDAD ESPECÍFICA")
-                    horas_mc = st.number_input("Horas Mantenimiento Correctivo (Horas MC)", min_value=0.0, max_value=24.0, step=0.5, value=0.0)
-
+                    ], index=0 if not reg_existente.get("tipo_mantenimiento") else ["Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)", "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)", "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"].index(reg_existente.get("tipo_mantenimiento")) if reg_existente.get("tipo_mantenimiento") in ["Operación Normal", "Preventivo (PM)", "Mantenimiento Correctivo Programado (MCP)", "Mantenimiento Correctivo Mayor (MCM)", "Mantenimiento Correctivo Menor (MCMn)", "Lubricación (LUBR)", "Inspección (INSP)", "Abastecimiento (ABS)"] else 0)
+                    actividad_rd = st.text_input("ACTIVIDAD (C16)", value=reg_existente.get("actividad", ""))
+                    horas_mc = st.number_input("Horas MC (G14)", min_value=0.0, max_value=24.0, step=0.5, value=float(reg_existente.get("horas_mc", 0.0)))
                 with r6:
-                    hb_val = st.number_input("Horas Base Turno (HB)", min_value=1.0, max_value=24.0, step=1.0, value=10.0)
-                    dm_calc = round(max(0.0, (hb_val - horas_mc) / hb_val), 2) if hb_val > 0 else 1.0
-                    st.metric("Disponibilidad Mecánica (DM)", f"{int(dm_calc * 100)}%")
+                    hb_val = 10.0
+                    st.number_input("Horas Base (HB - G13)", value=hb_val, disabled=True)
+                    dm_calc = round(max(0.0, (hb_val - horas_mc) / hb_val), 2)
+                    st.metric("Disponibilidad Mecánica (DM - G15)", f"{int(dm_calc * 100)}%")
 
                 st.divider()
-                st.markdown("##### 🛠️ 3. Trabajos Ejecutados, Backlog e Insumos")
+                st.markdown("##### 🛠️ 4. Trabajos Ejcutados e Insumos")
                 r7, r8 = st.columns(2)
                 with r7:
-                    desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS")
-                    backlog_rd = st.text_input("BACKLOG / OBSERVACIONES PENDIENTES")
+                    desc_trabajo = st.text_area("DESCRIPCIÓN DE TRABAJOS EJECUTADOS (D16)", value=reg_existente.get("descripcion_trabajo", ""))
+                    backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
-                    detalle_insumo = st.text_input("DETALLE INSUMO / REPUESTO")
+                    detalle_insumo = st.text_input("DETALLE INSUMO / REPUESTO (C17)", value=reg_existente.get("detalle_insumo", ""))
                     c_p1, c_p2 = st.columns(2)
                     with c_p1:
-                        precio_mo = st.number_input("Costo Mano de Obra (S/.)", min_value=0.0, step=10.0, value=0.0)
+                        precio_mo = st.number_input("Precio Mano de Obra (S/.)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio", 0.0)))
                     with c_p2:
-                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/.)", min_value=0.0, step=10.0, value=0.0)
+                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/. - D17)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio_insumo", 0.0)))
 
                 st.divider()
-                guardar_rd_btn = st.form_submit_button("💾 Guardar Parte Diario en Supabase", use_container_width=True)
+                
+                guardar_rd_btn = st.form_submit_button("💾 Guardardatos (Guardar / Actualizar Parte)", use_container_width=True)
 
                 if guardar_rd_btn:
-                    str_h_inicio = f"{fecha_rep}T{h_inicio.strftime('%H:%M:%S')}"
-                    str_h_fin = f"{fecha_rep}T{h_fin.strftime('%H:%M:%S')}"
+                    str_h_inicio = f"{fecha_sel}T{h_inicio.strftime('%H:%M:%S')}"
+                    str_h_fin = f"{fecha_sel}T{h_fin.strftime('%H:%M:%S')}"
 
                     nuevo_rd = {
-                        "fecha_reporte": str(fecha_rep),
-                        "placa": placa_rd,
+                        "fecha_reporte": str(fecha_sel),
+                        "placa": placa_sel_rd,
                         "frente_asignado": frente_rd,
-                        "numero_ot": n_ot if n_ot else "",      # Guarda Orden de Trabajo explícita
-                        "codigo": n_ot if n_ot else cod_int_rd,  # Guarda fallback en codigo
+                        "numero_ot": n_ot if n_ot else "",
+                        "codigo": n_ot if n_ot else cod_int_rd,
                         "estado": estado_rd,
                         "hr": hr_val,
                         "km": km_val,
@@ -677,13 +710,58 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "precio_insumo": precio_insumo
                     }
 
-                    exito_rd, res_rd = insertar_registro("reporte_diario", nuevo_rd)
+                    # Si existe id, se actualiza, si no, se inserta nuevo
+                    if "id" in reg_existente:
+                        nuevo_rd["id"] = reg_existente["id"]
+
+                    exito_rd, res_rd = insertar_o_actualizar("reporte_diario", nuevo_rd)
                     if exito_rd:
-                        st.success(f"✅ Parte Diario registrado correctamente para la Placa `{placa_rd}`.")
+                        st.success(f"✅ Se guardaron los datos para la fecha `{fecha_sel}` y la Placa `{placa_sel_rd}` exitosamente.")
                         st.rerun()
                     else:
-                        st.error(f"❌ Error al guardar en Supabase: {res_rd}")
+                        st.error(f"❌ Error al guardar datos en Supabase: {res_rd}")
 
+    # --- PESTAÑA 2: MACRO AGREGARFEC (GENERACIÓN AUTOMÁTICA DE DÍA SIGUIENTE) ---
+    with tab_generar_dia:
+        st.subheader("📅 Generar Estructura para el Día Siguiente (Macro `agregarfec`)")
+        st.caption("Esta herramienta busca la última fecha registrada en Supabase y genera automáticamente los registros base para toda la flota activa con fecha $Fecha + 1$.")
+
+        if df_reportes.empty:
+            st.info("No hay fechas registradas aún en el Reporte Diario para proyectar.")
+        else:
+            df_reportes["fecha_reporte_dt"] = pd.to_datetime(df_reportes["fecha_reporte"], errors="coerce").dt.date
+            fec_max = df_reportes["fecha_reporte_dt"].max()
+            fec_siguiente = fec_max + timedelta(days=1)
+
+            st.metric("Última Fecha Registrada", str(fec_max))
+            st.metric("Siguiente Fecha a Crear", str(fec_siguiente))
+
+            st.divider()
+            if st.button("🚀 Confirmar y Ejecutar `agregarfec` (Crear Día Siguiente)", use_container_width=True):
+                df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"] if not df_equipos.empty else pd.DataFrame()
+                
+                if df_activos.empty:
+                    st.error("❌ No hay equipos en la Lista Maestra Activa para generar el día.")
+                else:
+                    registros_creados = 0
+                    for _, eq in df_activos.iterrows():
+                        reg_base = {
+                            "fecha_reporte": str(fec_siguiente),
+                            "placa": eq["placa"],
+                            "frente_asignado": eq.get("frente_asignado", "Frente Principal"),
+                            "codigo": eq.get("codigo_interno", ""),
+                            "estado": "Operativo",
+                            "hr": 0.0,
+                            "km": 0.0,
+                            "horas_mc": 0.0
+                        }
+                        insertar_o_actualizar("reporte_diario", reg_base)
+                        registros_creados += 1
+
+                    st.success(f"✅ ¡Macro ejecutada con éxito! La fecha agregada es: `{fec_siguiente}` con {registros_creados} equipos activos en blanco.")
+                    st.rerun()
+
+    # --- PESTAÑA 3: CONSOLIDADO Y FILTROS POR FECHA Y EQUIPO ---
     with tab_consulta_rd:
         st.subheader("🔍 Consulta Consolidada del Reporte Diario (`RD`)")
         st.caption("Filtre por Ciclo Semanal (Sábado a Viernes), Rango de Fechas Personalizado y/o Placa específica.")
