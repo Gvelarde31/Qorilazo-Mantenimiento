@@ -67,6 +67,19 @@ def insertar_registro(nombre_tabla, datos):
     except Exception as e:
         return False, str(e)
 
+def eliminar_registro(nombre_tabla, columna_id, valor_id):
+    url_endpoint = f"{SUPABASE_URL}/rest/v1/{nombre_tabla}?{columna_id}=eq.{valor_id}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.delete(url_endpoint, headers=headers, timeout=10)
+        return response.status_code in [200, 204]
+    except Exception:
+        return False
+
 def actualizar_estado_equipo(placa, nuevo_estado):
     url_endpoint = f"{SUPABASE_URL}/rest/v1/lista_maestra?placa=eq.{placa}"
     headers = {
@@ -176,7 +189,7 @@ modulo = st.sidebar.radio(
         "4. Programa Mantenimiento (En desarrollo)",
         "5. Vale de Combustible (En desarrollo)",
         "6. Registro Cisterna (En desarrollo)",
-        "7. Lista Insumos (En desarrollo)"
+        "7. Lista Insumos (Catálogo Maestro)"
     ]
 )
 
@@ -587,7 +600,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
         "📊 Consolidado Reporte Diario & Filtros de Fecha"
     ])
 
-    # --- PESTAÑA 1: FICHA DE CAMPO INTERACTIVA ---
     with tab_registro_rd:
         st.subheader("📋 Ficha de Campo Individual (Búsqueda y Edición Automática)")
         if df_equipos.empty:
@@ -604,7 +616,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 eq_sel_rd = st.selectbox("CÓDIGO / PLACA EQUIPO *", opciones_placa)
                 placa_sel_rd = eq_sel_rd.split(" - ")[0].strip()
 
-            # Consultar si ya existe un registro guardado para esta combinación
             reg_existente = {}
             if not df_reportes.empty:
                 df_reportes["fecha_reporte_dt"] = pd.to_datetime(df_reportes["fecha_reporte"], errors="coerce").dt.date
@@ -618,13 +629,11 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 else:
                     st.success("✨ **Registro Nuevo:** No existen datos previos para este día. Complete la ficha para guardar un nuevo reporte.")
 
-            # Información de máquina heredada de Lista Maestra
             info_eq = df_activos[df_activos["placa"] == placa_sel_rd].iloc[0].to_dict()
             cod_int_rd = info_eq.get("codigo_interno", "")
             tipo_flota_rd = info_eq.get("tipo_flota", "")
             frente_default = reg_existente.get("frente_asignado", info_eq.get("frente_asignado", "Frente Principal"))
 
-            # Formulario de Ingreso y Edición
             with st.form("form_registro_diario_vba", clear_on_submit=False):
                 st.markdown("##### 🚜 2. Información Operativa y de Máquina")
                 r1, r2, r3 = st.columns(3)
@@ -635,7 +644,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 with r2:
                     frente_rd = st.text_input("FRENTE TRABAJO", value=frente_default)
                     
-                    # Regla de Código: 1 (Operativo), 2 (Inoperativo)
                     cod_estado_prev = str(reg_existente.get("codigo", "1")).strip()
                     idx_cod = 0 if cod_estado_prev in ["1", "1.0"] else 1
                     cod_estado_sel = st.selectbox("CÓDIGO DE ESTADO *", ["1 - Operativo", "2 - Inoperativo"], index=idx_cod)
@@ -657,7 +665,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     h_inicio = st.time_input("Hora Inicio", value=t_inc)
                     h_fin = st.time_input("Hora Final", value=t_fn)
                     
-                    # Cálculo exacto de horas_mc = 24 * (Hora Fin - Hora Inicio)
                     dt_start = datetime.combine(fecha_sel, h_inicio)
                     dt_end = datetime.combine(fecha_sel, h_fin)
                     diff_seconds = (dt_end - dt_start).total_seconds()
@@ -665,22 +672,18 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     st.info(f"⏱️ **Horas MC Calculadas:** `{horas_mc_calc} h`")
 
                 with r5:
-                    # Regla de Tipo Mantenimiento
                     list_tipo_manto = ["Preventivo", "Correctivo", "Implementacion"]
                     t_manto_prev = reg_existente.get("tipo_mantenimiento", "Preventivo")
                     idx_tm = list_tipo_manto.index(t_manto_prev) if t_manto_prev in list_tipo_manto else 0
                     tipo_manto = st.selectbox("TIPO MANTENIMIENTO *", list_tipo_manto, index=idx_tm)
                     
-                    # Cambio de denominación: DESCRIPCIÓN DE TRABAJOS EJECUTADOS (enlaza con columna descripcion_trabajo)
                     desc_trabajo = st.text_input("DESCRIPCIÓN DE TRABAJOS EJECUTADOS", value=reg_existente.get("descripcion_trabajo", ""))
 
                 with r6:
-                    # Regla de Horas Base HB (Opciones: 10 o 5)
                     hb_prev = int(float(reg_existente.get("hb", 10))) if reg_existente.get("hb") else 10
                     idx_hb = 0 if hb_prev == 10 else 1
                     hb_sel = st.selectbox("HORAS BASE (HB) *", [10, 5], index=idx_hb)
                     
-                    # Cálculo exacto de DM = (HB - Horas MC) / HB
                     dm_num = round(max(0.0, (hb_sel - horas_mc_calc) / hb_sel), 2) if hb_sel > 0 else 1.0
                     st.metric("Disponibilidad Mecánica (DM)", f"{int(dm_num * 100)}%")
 
@@ -688,7 +691,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 st.markdown("##### 🛠️ 4. Trabajos Ejecutados e Insumos")
                 r7, r8 = st.columns(2)
                 with r7:
-                    # Cambio de denominación: ACTIVIDAD / DETALLE DE TRABAJO (enlaza con columna actividad)
                     actividad_rd = st.text_area("ACTIVIDAD / DETALLE DE TRABAJO", value=reg_existente.get("actividad", ""))
                     backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
@@ -712,20 +714,20 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "placa": placa_sel_rd,
                         "frente_asignado": frente_rd,
                         "numero_ot": n_ot if n_ot else "",
-                        "codigo": cod_estado_val,          # Guarda "1" o "2"
-                        "estado": estado_auto,             # Guarda "Operativo" u "Inoperativo"
+                        "codigo": cod_estado_val,          # "1" o "2"
+                        "estado": estado_auto,             # "Operativo" u "Inoperativo"
                         "hr": hr_val,
                         "km": km_val,
                         "tecnico_responsable": tec_resp,
-                        "descripcion_trabajo": desc_trabajo, # Enlazado al input "DESCRIPCIÓN DE TRABAJOS EJECUTADOS"
+                        "descripcion_trabajo": desc_trabajo,
                         "backlog": backlog_rd,
                         "hora_inicio": str_h_inicio,
                         "hora_fin": str_h_fin,
-                        "tipo_mantenimiento": tipo_manto,  # "Preventivo", "Correctivo", "Implementacion"
-                        "actividad": actividad_rd,         # Enlazado al input "ACTIVIDAD / DETALLE DE TRABAJO"
-                        "horas_mc": horas_mc_calc,         # Calculado: 24*(hora_fin - hora_inicio)
-                        "hb": hb_sel,                      # 10 o 5
-                        "dm": dm_num,                      # Calculado: (hb - horas_mc)/hb
+                        "tipo_mantenimiento": tipo_manto,
+                        "actividad": actividad_rd,
+                        "horas_mc": horas_mc_calc,
+                        "hb": hb_sel,
+                        "dm": dm_num,
                         "precio": precio_mo,
                         "detalle_insumo": detalle_insumo,
                         "precio_insumo": precio_insumo
@@ -741,7 +743,6 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     else:
                         st.error(f"❌ Error al guardar datos en Supabase: {res_rd}")
 
-    # --- PESTAÑA 2: CONSOLIDADO Y FILTROS POR FECHA Y EQUIPO ---
     with tab_consulta_rd:
         st.subheader("🔍 Consulta Consolidada del Reporte Diario (`RD`)")
         st.caption("Filtre por Ciclo Semanal (Sábado a Viernes), Rango de Fechas Personalizado y/o Placa específica.")
@@ -828,6 +829,173 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
+# ==========================================
+# MÓDULO 7: LISTA DE INSUMOS (CATÁLOGO MAESTRO)
+# ==========================================
+elif modulo == "7. Lista Insumos (Catálogo Maestro)":
+    st.header("📦 Módulo 7: Lista de Insumos & Repuestos (`lista_insumos`)")
+    st.caption("Catálogo maestro de repuestos con unidades, precios unitarios, stock y valorización.")
+
+    insumos = consultar_tabla("lista_insumos")
+    df_insumos = pd.DataFrame(insumos) if insumos else pd.DataFrame()
+
+    tab_cat_insumos, tab_add_insumo, tab_edit_insumo, tab_del_insumo = st.tabs([
+        "📦 Catálogo Maestro & Filtros",
+        "➕ Agregar Insumo / Repuesto",
+        "✏️ Editar Insumo / Precio",
+        "❌ Eliminar Insumo"
+    ])
+
+    # --- PESTAÑA 1: CATÁLOGO MAESTRO CON CÁLCULO DE TOTAL ---
+    with tab_cat_insumos:
+        if not df_insumos.empty:
+            df_ins_full = df_insumos.copy()
+
+            # Cálculo de Total = Cantidad * Precio Insumo
+            df_ins_full["precio_insumo"] = pd.to_numeric(df_ins_full["precio_insumo"], errors="coerce").fillna(0.0)
+            df_ins_full["cantidad"] = pd.to_numeric(df_ins_full["cantidad"], errors="coerce").fillna(1)
+            df_ins_full["total"] = (df_ins_full["cantidad"] * df_ins_full["precio_insumo"]).round(2)
+
+            cols_export_ins = ["id", "unidad", "detalle_insumo", "precio_insumo", "cantidad", "total"]
+            cols_disp_ins = [c for c in cols_export_ins if c in df_ins_full.columns]
+
+            st.subheader("🔍 Panel de Filtros y Búsqueda en Catálogo de Repuestos")
+
+            i_col1, i_col2, i_col3 = st.columns([1.5, 1.5, 2])
+            with i_col1:
+                col_filtro_ins = st.selectbox("1. Filtrar por Columna:", options=["NINGUNO"] + cols_disp_ins)
+            with i_col2:
+                if col_filtro_ins != "NINGUNO":
+                    vals_ins = ["TODOS"] + sorted(list(df_ins_full[col_filtro_ins].dropna().astype(str).unique()))
+                    val_filtro_ins = st.selectbox(f"2. Valor de {col_filtro_ins}:", vals_ins)
+                else:
+                    val_filtro_ins = "TODOS"
+                    st.selectbox("2. Valor de Filtro:", ["TODOS"], disabled=True)
+            with i_col3:
+                txt_ins = st.text_input("🔎 3. Búsqueda Libre (Nombre Repuesto / Unidad):").strip()
+
+            df_ins_filtrado = df_ins_full.copy()
+            if col_filtro_ins != "NINGUNO" and val_filtro_ins != "TODOS":
+                df_ins_filtrado = df_ins_filtrado[df_ins_filtrado[col_filtro_ins].astype(str) == val_filtro_ins]
+
+            if txt_ins:
+                df_ins_filtrado = aplicar_busqueda_libre(df_ins_filtrado, cols_disp_ins, txt_ins)
+
+            st.divider()
+
+            # Métricas de resumen del inventario
+            m_i1, m_i2, m_i3 = st.columns(3)
+            with m_i1:
+                st.metric("Total de Insumos Registrados", len(df_ins_filtrado))
+            with m_i2:
+                st.metric("Cantidad Acumulada de Stock", int(df_ins_filtrado["cantidad"].sum()))
+            with m_i3:
+                st.metric("Valorización Total Inventario", f"S/. {df_ins_filtrado['total'].sum():,.2f}")
+
+            st.dataframe(df_ins_filtrado[cols_disp_ins], use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Catálogo de Insumos en Excel (.xlsx)",
+                data=generar_excel_bytes(df_ins_filtrado[cols_disp_ins], "Catálogo_Insumos"),
+                file_name=f"Catalogo_Insumos_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        else:
+            st.info("No hay insumos o repuestos registrados en el catálogo maestro.")
+
+    # --- PESTAÑA 2: AGREGAR INSUMO / REPUESTO ---
+    with tab_add_insumo:
+        st.subheader("➕ Registrar Nuevo Insumo / Repuesto en el Catálogo")
+        with st.form("form_add_insumo", clear_on_submit=True):
+            ci1, ci2 = st.columns(2)
+            with ci1:
+                unidad_ins = st.selectbox("Unidad de Medida *", ["Unid", "Gln", "Juego", "Litro", "Kg", "Metro", "Pieza", "Caja", "Par", "Otro"])
+                detalle_ins = st.text_input("Detalle Insumo / Nombre Repuesto *").upper().strip()
+            with ci2:
+                precio_ins = st.number_input("Precio Unitario (S/.) *", min_value=0.0, step=5.0, value=0.0)
+                cant_ins = st.number_input("Cantidad *", min_value=1, step=1, value=1)
+
+            st.divider()
+            guardar_ins_btn = st.form_submit_button("💾 Guardar Insumo en Catálogo", use_container_width=True)
+
+            if guardar_ins_btn:
+                if not detalle_ins:
+                    st.error("❌ El Detalle del Insumo / Nombre Repuesto es obligatorio.")
+                else:
+                    nuevo_insumo = {
+                        "unidad": unidad_ins,
+                        "detalle_insumo": detalle_ins,
+                        "precio_insumo": precio_ins,
+                        "cantidad": cant_ins
+                    }
+
+                    exito_ins, res_ins = insertar_registro("lista_insumos", nuevo_insumo)
+                    if exito_ins:
+                        st.success(f"✅ Insumo `{detalle_ins}` registrado exitosamente en el catálogo.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al guardar en Supabase: {res_ins}")
+
+    # --- PESTAÑA 3: EDITAR INSUMO / PRECIO ---
+    with tab_edit_insumo:
+        st.subheader("✏️ Editar Insumo, Unidad o Precio Referencial")
+        if not df_insumos.empty:
+            opciones_ins_edit = [f"{r['id']} - {r['detalle_insumo']} ({r['unidad']})" for _, r in df_insumos.iterrows()]
+            sel_ins_edit = st.selectbox("Seleccione Insumo a Editar:", opciones_ins_edit)
+            id_ins_target = int(sel_ins_edit.split(" - ")[0].strip())
+
+            ins_previo = df_insumos[df_insumos["id"] == id_ins_target].iloc[0].to_dict()
+
+            with st.form("form_edit_insumo", clear_on_submit=False):
+                ce_i1, ce_i2 = st.columns(2)
+                with ce_i1:
+                    unidades_lista = ["Unid", "Gln", "Juego", "Litro", "Kg", "Metro", "Pieza", "Caja", "Par", "Otro"]
+                    idx_u = unidades_lista.index(ins_previo.get("unidad", "Unid")) if ins_previo.get("unidad") in unidades_lista else 0
+                    unidad_edit = st.selectbox("Unidad de Medida", unidades_lista, index=idx_u)
+                    detalle_edit = st.text_input("Detalle Insumo / Nombre Repuesto", value=ins_previo.get("detalle_insumo", ""))
+                with ce_i2:
+                    precio_edit = st.number_input("Precio Unitario (S/.)", min_value=0.0, step=5.0, value=float(ins_previo.get("precio_insumo", 0.0)))
+                    cant_edit = st.number_input("Cantidad", min_value=0, step=1, value=int(ins_previo.get("cantidad", 1)))
+
+                st.divider()
+                guardar_edit_ins_btn = st.form_submit_button("💾 Actualizar Datos del Insumo", use_container_width=True)
+
+                if guardar_edit_ins_btn:
+                    upd_insumo = {
+                        "id": id_ins_target,
+                        "unidad": unidad_edit,
+                        "detalle_insumo": detalle_edit.upper().strip(),
+                        "precio_insumo": precio_edit,
+                        "cantidad": cant_edit
+                    }
+
+                    exito_upd, res_upd = insertar_o_actualizar("lista_insumos", upd_insumo)
+                    if exito_upd:
+                        st.success(f"✅ Datos del insumo ID `{id_ins_target}` actualizados correctamente.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al actualizar en Supabase: {res_upd}")
+        else:
+            st.info("No hay insumos registrados para editar.")
+
+    # --- PESTAÑA 4: ELIMINAR INSUMO ---
+    with tab_del_insumo:
+        st.subheader("❌ Eliminar Insumo del Catálogo Maestro")
+        if not df_insumos.empty:
+            opciones_ins_del = [f"{r['id']} - {r['detalle_insumo']} (Precio: S/. {r['precio_insumo']})" for _, r in df_insumos.iterrows()]
+            sel_ins_del = st.selectbox("Seleccione Insumo a Eliminar:", opciones_ins_del)
+            id_ins_del = int(sel_ins_del.split(" - ")[0].strip())
+
+            if st.button("⚠️ Confirmar Eliminar Insumo", use_container_width=True):
+                if eliminar_registro("lista_insumos", "id", id_ins_del):
+                    st.success(f"✅ Insumo ID `{id_ins_del}` eliminado del catálogo maestro.")
+                    st.rerun()
+                else:
+                    st.error("❌ No se pudo eliminar el insumo en Supabase.")
+        else:
+            st.info("No hay insumos para eliminar.")
 
 else:
     st.info("Módulo en desarrollo para la siguiente fase de revisión.")
