@@ -292,7 +292,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                 anio = st.number_input("Año de Fabricación", min_value=1990, max_value=2030, value=2024, step=1)
 
             st.divider()
-            st.markdown("##### ⚙️ Capacidades y Potencia")
+            st.markdown("##### ⚙️️ Capacidades y Potencia")
             c4, c5, c6 = st.columns(3)
             with c4:
                 capacidad = st.text_input("Capacidad (ej. 15 m3 / 5000 gln)")
@@ -411,7 +411,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
 
     tab_estatus_lista, tab_actualizar = st.tabs([
         "📋 Estatus de Documentación & Filtros",
-        "✏️ Actualizar Permisos de Equipo"
+        "✏️️ Actualizar Permisos de Equipo"
     ])
 
     with tab_estatus_lista:
@@ -627,7 +627,7 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 ]
                 if not match_rd.empty:
                     reg_existente = match_rd.iloc[0].to_dict()
-                    st.info("ℹ️ **Registro Encontrado:** Se cargaron los datos guardados anteriormente para este día y equipo. Puede editarlos directamente.")
+                    st.info("ℹ️️ **Registro Encontrado:** Se cargaron los datos guardados anteriormente para este día y equipo. Puede editarlos directamente.")
                 else:
                     st.success("✨ **Registro Nuevo:** No existen datos previos para este día. Complete la ficha para guardar un nuevo reporte.")
 
@@ -636,7 +636,7 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             tipo_flota_rd = info_eq.get("tipo_flota", "")
             frente_default = reg_existente.get("frente_asignado", info_eq.get("frente_asignado", "Frente Principal"))
 
-            # --- JALADO AUTOMÁTICO DEL PRECIO DEL INSUMO ---
+            # Opciones de insumos desde el Módulo 7
             opciones_ins_cat = ["NINGUNO"]
             dict_precios_cat = {}
             if not df_ins_cat.empty:
@@ -644,19 +644,8 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                 for _, r_cat in df_ins_cat.iterrows():
                     dict_precios_cat[r_cat["detalle_insumo"]] = float(r_cat.get("precio_insumo", 0.0) or 0.0)
 
-            st.divider()
-            st.markdown("##### 🛒 Selección de Insumo de Almacén (Jalado Automático de Precio)")
             insumo_prev = reg_existente.get("detalle_insumo", "NINGUNO")
             idx_ins_cat = opciones_ins_cat.index(insumo_prev) if insumo_prev in opciones_ins_cat else 0
-            
-            insumo_seleccionado = st.selectbox("SELECCIONAR INSUMO DE ALMACÉN (MÓDULO 7)", opciones_ins_cat, index=idx_ins_cat)
-            
-            # Obtener el precio automático actualizado
-            if insumo_seleccionado != "NINGUNO" and insumo_seleccionado in dict_precios_cat:
-                precio_auto = dict_precios_cat[insumo_seleccionado]
-                st.caption(f"📦 Precio Vigente Jalado de Almacén: **S/. {precio_auto:.2f}**")
-            else:
-                precio_auto = float(reg_existente.get("precio_insumo", 0.0) or 0.0)
 
             with st.form("form_registro_diario_vba", clear_on_submit=False):
                 st.markdown("##### 🚜 2. Información Operativa y de Máquina")
@@ -718,6 +707,14 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     actividad_rd = st.text_area("ACTIVIDAD / DETALLE DE TRABAJO", value=reg_existente.get("actividad", ""))
                     backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
+                    insumo_seleccionado = st.selectbox("SELECCIONAR INSUMO DE ALMACÉN (MÓDULO 7)", opciones_ins_cat, index=idx_ins_cat)
+                    
+                    if insumo_seleccionado != "NINGUNO" and insumo_seleccionado in dict_precios_cat:
+                        precio_auto = dict_precios_cat[insumo_seleccionado]
+                        st.caption(f"📦 **Precio automático del modulo 7:** S/. {precio_auto:.2f}")
+                    else:
+                        precio_auto = float(reg_existente.get("precio_insumo", 0.0) or 0.0)
+
                     c_p1, c_p2 = st.columns(2)
                     with c_p1:
                         precio_mo = st.number_input("Costo Mano de Obra / HH (S/.)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio", 0.0)))
@@ -895,7 +892,6 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
             with c_v3:
                 fecha_fin_val = st.date_input("Fecha Fin Corte *", value=hoy)
 
-            # Filtrar partes diarios por Placa y Rango de Fechas
             df_rep_copy = df_reportes.copy()
             df_rep_copy["fecha_dt"] = pd.to_datetime(df_rep_copy["fecha_reporte"], errors="coerce").dt.date
             
@@ -912,7 +908,6 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                 item_counter = 1
 
                 for _, r in df_val_filtrado.iterrows():
-                    # SUMA EXACTA: precio (Mano de Obra) + precio_insumo
                     p_mo = float(r.get("precio", 0.0) or 0.0)
                     p_ins = float(r.get("precio_insumo", 0.0) or 0.0)
                     p_total_row = p_mo + p_ins
@@ -940,7 +935,6 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                 st.divider()
                 st.markdown(f"##### 📋 Resumen de Valorización - Equipo Placa: `{placa_val_target}`")
                 
-                # Métricas de Totalización
                 m_v1, m_v2, m_v3 = st.columns(3)
                 m_v1.metric("Total Mantenimientos", len(df_matriz_val))
                 m_v2.metric("Mano de Obra Acumulada (S/.)", f"S/. {df_val_filtrado['precio'].astype(float).sum():,.2f}")
@@ -948,7 +942,6 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                 total_acumulado_soles = df_matriz_val["TOTAL (S/.)"].sum()
                 m_v3.metric("VALORIZACIÓN TOTAL (S/.)", f"S/. {total_acumulado_soles:,.2f}")
 
-                # Formatear la columna TOTAL para la tabla en pantalla
                 df_matriz_val_display = df_matriz_val.copy()
                 df_matriz_val_display["TOTAL (S/.)"] = df_matriz_val_display["TOTAL (S/.)"].apply(lambda x: f"S/. {x:,.2f}")
 
@@ -997,7 +990,6 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                             "precio_insumo": precio_ins
                         }
                         
-                        # Si ya existe en Supabase, incluir su ID para actualizar sin crear duplicado
                         if not df_ins_cat.empty:
                             match_cat = df_ins_cat[df_ins_cat["detalle_insumo"] == detalle_ins]
                             if not match_cat.empty:
