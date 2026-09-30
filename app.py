@@ -181,19 +181,14 @@ def obtener_rango_sabado_viernes(fecha_ref):
 
 def obtener_valor_umbral(tipo_flota):
     tf_norm = normalizar_texto(tipo_flota)
-    # Categoría 1: Valor 65
-    cat1 = ["CISTERNA DE AGUA", "CAMION GRUA", "MINICARGADOR", "VOLQUETE", "RETROEXCAVADORA", "RODILLO", "RODILLO COMPACTADOR", "MOTONIVELADORA"]
-    # Categoría 2: Valor 1000
-    cat2 = ["CISTERNA DE COMBUSTIBLE", "VAN", "COASTER"]
-    # Categoría 3: Valor 1500
-    cat3 = ["CAMIONETA"]
-
-    if tf_norm in cat1:
-        return 65.0
-    elif tf_norm in cat2:
-        return 1000.0
-    elif tf_norm in cat3:
+    
+    # Búsqueda por coincidencia de subcadena para mayor flexibilidad
+    if "CAMIONETA" in tf_norm:
         return 1500.0
+    elif any(k in tf_norm for k in ["CISTERNA DE COMBUSTIBLE", "VAN", "COASTER"]):
+        return 1000.0
+    elif any(k in tf_norm for k in ["CISTERNA", "AGUA", "GRUA", "MINICARGADOR", "VOLQUETE", "RETROEXCAVADORA", "RODILLO", "MOTONIVELADORA"]):
+        return 65.0
     else:
         return 250.0
 
@@ -418,7 +413,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
 # MÓDULO 2: ESTATUS EQUIPO (ACREDITACIONES)
 # ==========================================
 elif modulo == "2. Estatus Equipo (Acreditaciones)":
-    st.header("🛡️ Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
+    st.header("🛡️️ Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
     st.caption("Sincronización en tiempo real con la Lista Maestra, días faltantes y semáforos de vencimiento.")
 
     equipos = consultar_tabla("lista_maestra")
@@ -885,7 +880,6 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
         "✏️ Actualizar Horómetros / Fechas de PM"
     ])
 
-    # --- LÓGICA Y CÁLCULOS DEL MÓDULO 4 ---
     if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
         df_activos_pm = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
 
@@ -896,13 +890,11 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
             for c_pm in ["semana_anterior", "ultimo_pm", "fecha_manual", "horometro_actual", "horometro_mnto", "estado_actual", "fecha_actual"]:
                 df_pm_full[c_pm] = None
 
-        # 1. Asegurar tipos numéricos
         df_pm_full["semana_anterior"] = pd.to_numeric(df_pm_full["semana_anterior"], errors="coerce").fillna(0.0)
         df_pm_full["ultimo_pm"] = pd.to_numeric(df_pm_full["ultimo_pm"], errors="coerce").fillna(0.0)
         df_pm_full["horometro_actual"] = pd.to_numeric(df_pm_full["horometro_actual"], errors="coerce").fillna(0.0)
         df_pm_full["frecuencia_mantenimiento"] = pd.to_numeric(df_pm_full["frecuencia_mantenimiento"], errors="coerce").fillna(250.0)
 
-        # 2. Fórmulas solicitadas:
         # promedio = (horometro_actual - semana_anterior) / 7
         df_pm_full["promedio"] = ((df_pm_full["horometro_actual"] - df_pm_full["semana_anterior"]) / 7.0).round(2)
 
@@ -912,7 +904,6 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
         # horometro_faltante = horometro_mnto - horometro_actual
         df_pm_full["horometro_faltante"] = (df_pm_full["horometro_mnto"] - df_pm_full["horometro_actual"]).round(2)
 
-        # dias_faltante = horometro_faltante / promedio (si promedio <= 0 o error, celda vacía / None)
         def calc_dias_faltante(row):
             prom = row["promedio"]
             h_falt = row["horometro_faltante"]
@@ -922,11 +913,9 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 
         df_pm_full["dias_faltante"] = df_pm_full.apply(calc_dias_faltante, axis=1)
 
-        # fecha_actual = fecha actual del sistema
         hoy_date = datetime.now().date()
         df_pm_full["fecha_actual"] = str(hoy_date)
 
-        # fecha_aprox = fecha_actual + dias_faltante
         def calc_fecha_aprox(row):
             d_falt = row["dias_faltante"]
             if pd.notna(d_falt) and d_falt is not None:
@@ -938,12 +927,15 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 
         df_pm_full["fecha_aprox"] = df_pm_full.apply(calc_fecha_aprox, axis=1)
 
-        # Semáforo estado_actual: (horometro_actual >= (horometro_mnto - valor)) -> Mantenimiento (Rojo), Operativo (Verde)
         def calc_estado_semaforo(row):
             h_act = row["horometro_actual"]
             h_mnto = row["horometro_mnto"]
             tf = row.get("tipo_flota", "")
             umbral_val = obtener_valor_umbral(tf)
+
+            # Si el equipo no ha registrado horometro actual o ultimo PM, evitar falso positivo en rojo
+            if h_act == 0.0 or pd.isna(h_act):
+                return "🟢 Operativo"
 
             if pd.notna(h_act) and pd.notna(h_mnto) and h_mnto > 0:
                 if h_act >= (h_mnto - umbral_val):
@@ -954,11 +946,9 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 
         df_pm_full["estado_actual"] = df_pm_full.apply(calc_estado_semaforo, axis=1)
 
-        # --- PESTAÑA 1: VISUALIZACIÓN Y REPORTES EN ORDEN SOLICITADO ---
         with tab_control_pm:
             st.subheader("📊 Reporte Semanal de Programa de Mantenimiento")
 
-            # Resumen de métricas rápidas
             cnt_manto = sum(1 for e in df_pm_full["estado_actual"] if "Mantenimiento" in e)
             cnt_oper = sum(1 for e in df_pm_full["estado_actual"] if "Operativo" in e)
 
@@ -969,7 +959,6 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 
             st.divider()
 
-            # Orden de columnas exacto solicitado para el reporte del cliente
             cols_orden_cliente = [
                 "tipo_flota", "marca", "modelo", "frente_asignado", "placa", "codigo_interno",
                 "semana_anterior", "promedio", "ultimo_pm", "fecha_manual", "horometro_actual",
@@ -1010,7 +999,6 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
                 use_container_width=True
             )
 
-        # --- PESTAÑA 2: ACTUALIZACIÓN Y REGISTRO ---
         with tab_editar_pm:
             st.subheader("✏️ Actualizar Horómetros y Fechas de PM por Equipo")
             opciones_eq_pm = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos_pm.iterrows()]
@@ -1040,11 +1028,13 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
                     h_act = st.number_input("Horómetro / KM Actual *", min_value=0.0, step=10.0, value=float(datos_prev_pm.get("horometro_actual", 0.0)))
                     f_manual = st.date_input("Fecha Manual", value=parse_fecha(datos_prev_pm.get("fecha_manual")))
                 with cp3:
-                    # Cálculo previo de horometro_mnto = ultimo_pm + frecuencia_mantenimiento
                     h_mnto_calc = ult_pm + frec_pm_val
                     st.metric("Horómetro Próximo Mantenimiento", f"{h_mnto_calc:.1f}")
                     
-                    est_calc_form = "🔴 Mantenimiento" if h_act >= (h_mnto_calc - umbral_actual) else "🟢 Operativo"
+                    if h_act == 0.0:
+                        est_calc_form = "🟢 Operativo (Pendiente Lectura)"
+                    else:
+                        est_calc_form = "🔴 Mantenimiento" if h_act >= (h_mnto_calc - umbral_actual) else "🟢 Operativo"
                     st.info(f"Semáforo Estimado: **{est_calc_form}**")
 
                 st.divider()
