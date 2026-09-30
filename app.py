@@ -636,6 +636,28 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
             tipo_flota_rd = info_eq.get("tipo_flota", "")
             frente_default = reg_existente.get("frente_asignado", info_eq.get("frente_asignado", "Frente Principal"))
 
+            # --- JALADO AUTOMÁTICO DEL PRECIO DEL INSUMO ---
+            opciones_ins_cat = ["NINGUNO"]
+            dict_precios_cat = {}
+            if not df_ins_cat.empty:
+                opciones_ins_cat += sorted(list(df_ins_cat["detalle_insumo"].dropna().astype(str).unique()))
+                for _, r_cat in df_ins_cat.iterrows():
+                    dict_precios_cat[r_cat["detalle_insumo"]] = float(r_cat.get("precio_insumo", 0.0) or 0.0)
+
+            st.divider()
+            st.markdown("##### 🛒 Selección de Insumo de Almacén (Jalado Automático de Precio)")
+            insumo_prev = reg_existente.get("detalle_insumo", "NINGUNO")
+            idx_ins_cat = opciones_ins_cat.index(insumo_prev) if insumo_prev in opciones_ins_cat else 0
+            
+            insumo_seleccionado = st.selectbox("SELECCIONAR INSUMO DE ALMACÉN (MÓDULO 7)", opciones_ins_cat, index=idx_ins_cat)
+            
+            # Obtener el precio automático actualizado
+            if insumo_seleccionado != "NINGUNO" and insumo_seleccionado in dict_precios_cat:
+                precio_auto = dict_precios_cat[insumo_seleccionado]
+                st.caption(f"📦 Precio Vigente Jalado de Almacén: **S/. {precio_auto:.2f}**")
+            else:
+                precio_auto = float(reg_existente.get("precio_insumo", 0.0) or 0.0)
+
             with st.form("form_registro_diario_vba", clear_on_submit=False):
                 st.markdown("##### 🚜 2. Información Operativa y de Máquina")
                 r1, r2, r3 = st.columns(3)
@@ -690,36 +712,17 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     st.metric("Disponibilidad Mecánica (DM)", f"{int(dm_num * 100)}%")
 
                 st.divider()
-                st.markdown("##### 🛠️ 4. Trabajos Ejecutados e Insumos de Almacén")
+                st.markdown("##### 🛠️ 4. Trabajos Ejecutados e Insumos")
                 r7, r8 = st.columns(2)
                 with r7:
                     actividad_rd = st.text_area("ACTIVIDAD / DETALLE DE TRABAJO", value=reg_existente.get("actividad", ""))
                     backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
-                    # Enlace con Módulo 7 (Lista de Insumos)
-                    if not df_ins_cat.empty:
-                        opciones_ins_cat = ["NINGUNO"] + sorted(list(df_ins_cat["detalle_insumo"].dropna().astype(str).unique()))
-                        insumo_prev = reg_existente.get("detalle_insumo", "NINGUNO")
-                        idx_ins_cat = opciones_ins_cat.index(insumo_prev) if insumo_prev in opciones_ins_cat else 0
-                        
-                        insumo_seleccionado = st.selectbox("SELECCIONAR INSUMO DE ALMACÉN (MÓDULO 7)", opciones_ins_cat, index=idx_ins_cat)
-                        
-                        # Auto-cargar precio vigente de almacén
-                        if insumo_seleccionado != "NINGUNO":
-                            row_ins = df_ins_cat[df_ins_cat["detalle_insumo"] == insumo_seleccionado].iloc[0]
-                            precio_sugerido = float(row_ins.get("precio_insumo", 0.0))
-                            st.caption(f"📦 Precio Almacén Vigente ({row_ins.get('unidad', 'Unid')}): **S/. {precio_sugerido:.2f}**")
-                        else:
-                            precio_sugerido = float(reg_existente.get("precio_insumo", 0.0))
-                    else:
-                        insumo_seleccionado = st.text_input("DETALLE INSUMO / REPUESTO", value=reg_existente.get("detalle_insumo", ""))
-                        precio_sugerido = float(reg_existente.get("precio_insumo", 0.0))
-
                     c_p1, c_p2 = st.columns(2)
                     with c_p1:
                         precio_mo = st.number_input("Costo Mano de Obra / HH (S/.)", min_value=0.0, step=10.0, value=float(reg_existente.get("precio", 0.0)))
                     with c_p2:
-                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/.)", min_value=0.0, step=10.0, value=precio_sugerido)
+                        precio_insumo = st.number_input("Precio Insumo / Repuesto (S/.) *", min_value=0.0, step=1.0, value=precio_auto)
 
                 st.divider()
                 
@@ -748,9 +751,9 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "horas_mc": horas_mc_calc,
                         "hb": hb_sel,
                         "dm": dm_num,
-                        "precio": precio_mo,
+                        "precio": precio_mo,               # Columna 'precio' (Mano de Obra)
                         "detalle_insumo": insumo_seleccionado if insumo_seleccionado != "NINGUNO" else "",
-                        "precio_insumo": precio_insumo
+                        "precio_insumo": precio_insumo    # Columna 'precio_insumo'
                     }
 
                     if "id" in reg_existente:
@@ -870,7 +873,7 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
         "📦 Catálogo Maestro de Precios de Almacén"
     ])
 
-    # --- PESTAÑA 1: MATRIZ DE VALORIZACIÓN POR EQUIPO (FIEL A TU FORMATO) ---
+    # --- PESTAÑA 1: MATRIZ DE VALORIZACIÓN POR EQUIPO ---
     with tab_val_equipo:
         st.subheader("💵 Valorización de Mantenimiento por Máquina / Periodo")
         
@@ -880,7 +883,7 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             opciones_placa_val = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos.iterrows()]
 
-            st.markdown("##### 1. Selección de Equipo y Rango de Fechas de Permanece/Trabajo")
+            st.markdown("##### 1. Selección de Equipo y Rango de Fechas de Permanencia/Trabajo")
             c_v1, c_v2, c_v3 = st.columns(3)
             with c_v1:
                 eq_val_sel = st.selectbox("Seleccione Equipo a Valorizar *", opciones_placa_val)
@@ -903,22 +906,20 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
             ].sort_values(by="fecha_dt")
 
             if df_val_filtrado.empty:
-                st.info(f"No se encontraron trabajos o partes diarios registrados para el equipo `{placa_val_target}` en el rango del `{fecha_ini_val}` al `{fecha_fin_val}`.")
+                st.info(f"No se encontraron trabajos registrados para el equipo `{placa_val_target}` en el rango del `{fecha_ini_val}` al `{fecha_fin_val}`.")
             else:
-                # Construir la estructura exacta de la imagen:
-                # ITEMS | N° O.T. | TIPO MANTTO | FECHA | DESCRIPCIÓN | C.U. | TOTAL (S/.)
-                
                 filas_valorizacion = []
                 item_counter = 1
 
                 for _, r in df_val_filtrado.iterrows():
+                    # SUMA EXACTA: precio (Mano de Obra) + precio_insumo
                     p_mo = float(r.get("precio", 0.0) or 0.0)
                     p_ins = float(r.get("precio_insumo", 0.0) or 0.0)
                     p_total_row = p_mo + p_ins
 
-                    # Descripción consolidada (Trabajo + Insumo consumido)
                     desc_ejecutada = str(r.get("descripcion_trabajo", "") or "").strip()
                     det_ins = str(r.get("detalle_insumo", "") or "").strip()
+                    
                     desc_completa = desc_ejecutada
                     if det_ins and det_ins != "NINGUNO":
                         desc_completa = f"{desc_ejecutada} / INSUMO: {det_ins}".strip(" /")
@@ -941,13 +942,13 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                 
                 # Métricas de Totalización
                 m_v1, m_v2, m_v3 = st.columns(3)
-                m_v1.metric("Total Mantenimientos / Trabajos", len(df_matriz_val))
-                m_v2.metric("Mano de Obra Acumulada", f"S/. {df_val_filtrado['precio'].astype(float).sum():,.2f}")
+                m_v1.metric("Total Mantenimientos", len(df_matriz_val))
+                m_v2.metric("Mano de Obra Acumulada (S/.)", f"S/. {df_val_filtrado['precio'].astype(float).sum():,.2f}")
                 
                 total_acumulado_soles = df_matriz_val["TOTAL (S/.)"].sum()
-                m_v3.metric("VALORIZACIÓN TOTAL", f"S/. {total_acumulado_soles:,.2f}")
+                m_v3.metric("VALORIZACIÓN TOTAL (S/.)", f"S/. {total_acumulado_soles:,.2f}")
 
-                # Formatear la columna TOTAL en soles para pantalla
+                # Formatear la columna TOTAL para la tabla en pantalla
                 df_matriz_val_display = df_matriz_val.copy()
                 df_matriz_val_display["TOTAL (S/.)"] = df_matriz_val_display["TOTAL (S/.)"].apply(lambda x: f"S/. {x:,.2f}")
 
@@ -964,7 +965,7 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
     # --- PESTAÑA 2: CATÁLOGO MAESTRO DE PRECIOS VIGENTES DE ALMACÉN ---
     with tab_cat_precios:
         st.subheader("📦 Catálogo Maestro de Precios Vigentes de Almacén")
-        st.caption("Administre la lista oficial de repuestos e insumos con sus precios unitarios actualizados.")
+        st.caption("Administre la lista oficial de repuestos con sus precios unitarios actualizados sin generar duplicados de lotes.")
 
         f_cat1, f_cat2 = st.columns([2, 1])
         with f_cat1:
@@ -977,14 +978,14 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                 st.info("No hay precios de insumos registrados aún en el catálogo.")
 
         with f_cat2:
-            st.markdown("##### ➕ / ✏️ Agregar o Actualizar Insumo")
+            st.markdown("##### ➕ / ✏️ Registrar o Actualizar Precio de Lote")
             with st.form("form_cat_insumos_vba", clear_on_submit=True):
                 unidad_ins = st.selectbox("Unidad de Medida *", ["Unid", "Gln", "Juego", "Litro", "Kg", "Metro", "Pieza", "Caja", "Par", "Otro"])
                 detalle_ins = st.text_input("Detalle Insumo / Nombre Repuesto *").upper().strip()
                 precio_ins = st.number_input("Precio Unitario Vigente (S/.) *", min_value=0.0, step=5.0, value=0.0)
 
                 st.divider()
-                guardar_cat_btn = st.form_submit_button("💾 Guardar en Catálogo", use_container_width=True)
+                guardar_cat_btn = st.form_submit_button("💾 Guardar / Actualizar Precio", use_container_width=True)
 
                 if guardar_cat_btn:
                     if not detalle_ins:
@@ -995,9 +996,16 @@ elif modulo == "7. Valorización & Catálogo de Insumos":
                             "detalle_insumo": detalle_ins,
                             "precio_insumo": precio_ins
                         }
+                        
+                        # Si ya existe en Supabase, incluir su ID para actualizar sin crear duplicado
+                        if not df_ins_cat.empty:
+                            match_cat = df_ins_cat[df_ins_cat["detalle_insumo"] == detalle_ins]
+                            if not match_cat.empty:
+                                reg_ins_cat["id"] = int(match_cat.iloc[0]["id"])
+
                         exito_c, res_c = insertar_o_actualizar("lista_insumos", reg_ins_cat)
                         if exito_c:
-                            st.success(f"✅ Insumo `{detalle_ins}` guardado correctamente.")
+                            st.success(f"✅ Precio actualizado correctamente para `{detalle_ins}`.")
                             st.rerun()
                         else:
                             st.error(f"❌ Error al guardar en Supabase: {res_c}")
