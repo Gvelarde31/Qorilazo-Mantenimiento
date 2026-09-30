@@ -181,8 +181,6 @@ def obtener_rango_sabado_viernes(fecha_ref):
 
 def obtener_valor_umbral(tipo_flota):
     tf_norm = normalizar_texto(tipo_flota)
-    
-    # Búsqueda por coincidencia de subcadena para mayor flexibilidad
     if "CAMIONETA" in tf_norm:
         return 1500.0
     elif any(k in tf_norm for k in ["CISTERNA DE COMBUSTIBLE", "VAN", "COASTER"]):
@@ -413,7 +411,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
 # MÓDULO 2: ESTATUS EQUIPO (ACREDITACIONES)
 # ==========================================
 elif modulo == "2. Estatus Equipo (Acreditaciones)":
-    st.header("🛡️️ Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
+    st.header("🛡️ Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
     st.caption("Sincronización en tiempo real con la Lista Maestra, días faltantes y semáforos de vencimiento.")
 
     equipos = consultar_tabla("lista_maestra")
@@ -875,9 +873,9 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_programas = pd.DataFrame(programas) if programas else pd.DataFrame()
 
-    tab_control_pm, tab_editar_pm = st.tabs([
-        "📊 Reporte de Control Semanal & Semáforo",
-        "✏️ Actualizar Horómetros / Fechas de PM"
+    tab_editar_pm, tab_control_pm = st.tabs([
+        "✏️ Actualizar Horómetros / Fechas de PM & Resumen Semafórico",
+        "📊 Reporte de Control Semanal & Exportación"
     ])
 
     if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
@@ -933,7 +931,6 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
             tf = row.get("tipo_flota", "")
             umbral_val = obtener_valor_umbral(tf)
 
-            # Si el equipo no ha registrado horometro actual o ultimo PM, evitar falso positivo en rojo
             if h_act == 0.0 or pd.isna(h_act):
                 return "🟢 Operativo"
 
@@ -946,63 +943,33 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 
         df_pm_full["estado_actual"] = df_pm_full.apply(calc_estado_semaforo, axis=1)
 
-        with tab_control_pm:
-            st.subheader("📊 Reporte Semanal de Programa de Mantenimiento")
-
+        # --- PESTAÑA 1: ACTUALIZACIÓN DIRECTA + RESUMEN SEMAFÓRICO (SOLICITADO COMO PRINCIPAL) ---
+        with tab_editar_pm:
+            st.subheader("🚨 Resumen Semafórico de Mantenimiento Preventivo")
+            
             cnt_manto = sum(1 for e in df_pm_full["estado_actual"] if "Mantenimiento" in e)
             cnt_oper = sum(1 for e in df_pm_full["estado_actual"] if "Operativo" in e)
 
             k_pm1, k_pm2, k_pm3 = st.columns(3)
             k_pm1.metric("Total Flota Activa", len(df_pm_full))
-            k_pm2.metric("🔴 En Umbral / Requiere Mantenimiento", cnt_manto)
+            k_pm2.metric("🔴 Requieren Mantenimiento", cnt_manto)
             k_pm3.metric("🟢 Operativo Preventivo", cnt_oper)
 
             st.divider()
+            st.markdown("##### 📋 Resumen Semafórico por Equipo (`placa`, `estado_actual`, `fecha_aprox`)")
 
-            cols_orden_cliente = [
-                "tipo_flota", "marca", "modelo", "frente_asignado", "placa", "codigo_interno",
-                "semana_anterior", "promedio", "ultimo_pm", "fecha_manual", "horometro_actual",
-                "horometro_mnto", "estado_actual", "fecha_actual", "fecha_aprox",
-                "horometro_faltante", "dias_faltante"
+            # Tabla compacta semafórica
+            cols_resumen_semaforo = [
+                "placa", "codigo_interno", "tipo_flota", "estado_actual", 
+                "horometro_faltante", "dias_faltante", "fecha_aprox"
             ]
+            cols_disp_sem = [c for c in cols_resumen_semaforo if c in df_pm_full.columns]
+            st.dataframe(df_pm_full[cols_disp_sem], use_container_width=True)
 
-            cols_disp_pm = [c for c in cols_orden_cliente if c in df_pm_full.columns]
+            st.divider()
+            st.subheader("✏️️ Formulario de Actualización de Horómetros / Lecturas de la Semana")
 
-            st.subheader("🔍 Filtros de Búsqueda de Programa Semanal")
-            c_pm1, c_pm2, c_pm3 = st.columns([1.5, 1.5, 2])
-            with c_pm1:
-                col_filtro_pm = st.selectbox("1. Filtrar por Columna:", options=["NINGUNO"] + cols_disp_pm)
-            with c_pm2:
-                if col_filtro_pm != "NINGUNO":
-                    vals_pm = ["TODOS"] + sorted(list(df_pm_full[col_filtro_pm].dropna().astype(str).unique()))
-                    val_filtro_pm = st.selectbox(f"2. Valor de {col_filtro_pm}:", vals_pm)
-                else:
-                    val_filtro_pm = "TODOS"
-                    st.selectbox("2. Valor:", ["TODOS"], disabled=True)
-            with c_pm3:
-                txt_pm = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Tipo Flota, Frente):").strip()
-
-            df_pm_filtrado = df_pm_full.copy()
-            if col_filtro_pm != "NINGUNO" and val_filtro_pm != "TODOS":
-                df_pm_filtrado = df_pm_filtrado[df_pm_filtrado[col_filtro_pm].astype(str) == val_filtro_pm]
-
-            if txt_pm:
-                df_pm_filtrado = aplicar_busqueda_libre(df_pm_filtrado, cols_disp_pm, txt_pm)
-
-            st.dataframe(df_pm_filtrado[cols_disp_pm], use_container_width=True)
-
-            st.download_button(
-                label="📥 Descargar Reporte de Programa de Mantenimiento (.xlsx)",
-                data=generar_excel_bytes(df_pm_filtrado[cols_disp_pm], "Programa_Mantenimiento"),
-                file_name=f"Programa_Mantenimiento_Semanal_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-
-        with tab_editar_pm:
-            st.subheader("✏️ Actualizar Horómetros y Fechas de PM por Equipo")
             opciones_eq_pm = [f"{r['placa']} - {r['codigo_interno']} ({r['tipo_flota']})" for _, r in df_activos_pm.iterrows()]
-            
             eq_sel_pm = st.selectbox("Seleccione el equipo a actualizar:", opciones_eq_pm)
             placa_sel_pm = eq_sel_pm.split(" - ")[0].strip()
 
@@ -1058,6 +1025,50 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
                         st.rerun()
                     else:
                         st.error(f"❌ Error al guardar en Supabase: {res_pm}")
+
+        # --- PESTAÑA 2: REPORTE DE CONTROL SEMANAL CONSOLIDADO ---
+        with tab_control_pm:
+            st.subheader("📊 Reporte de Control Semanal Consolidado (Exportación Cliente)")
+
+            cols_orden_cliente = [
+                "tipo_flota", "marca", "modelo", "frente_asignado", "placa", "codigo_interno",
+                "semana_anterior", "promedio", "ultimo_pm", "fecha_manual", "horometro_actual",
+                "horometro_mnto", "estado_actual", "fecha_actual", "fecha_aprox",
+                "horometro_faltante", "dias_faltante"
+            ]
+
+            cols_disp_pm = [c for c in cols_orden_cliente if c in df_pm_full.columns]
+
+            st.subheader("🔍 Filtros de Búsqueda de Programa Semanal")
+            c_pm1, c_pm2, c_pm3 = st.columns([1.5, 1.5, 2])
+            with c_pm1:
+                col_filtro_pm = st.selectbox("1. Filtrar por Columna:", options=["NINGUNO"] + cols_disp_pm)
+            with c_pm2:
+                if col_filtro_pm != "NINGUNO":
+                    vals_pm = ["TODOS"] + sorted(list(df_pm_full[col_filtro_pm].dropna().astype(str).unique()))
+                    val_filtro_pm = st.selectbox(f"2. Valor de {col_filtro_pm}:", vals_pm)
+                else:
+                    val_filtro_pm = "TODOS"
+                    st.selectbox("2. Valor:", ["TODOS"], disabled=True)
+            with c_pm3:
+                txt_pm = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Tipo Flota, Frente):").strip()
+
+            df_pm_filtrado = df_pm_full.copy()
+            if col_filtro_pm != "NINGUNO" and val_filtro_pm != "TODOS":
+                df_pm_filtrado = df_pm_filtrado[df_pm_filtrado[col_filtro_pm].astype(str) == val_filtro_pm]
+
+            if txt_pm:
+                df_pm_filtrado = aplicar_busqueda_libre(df_pm_filtrado, cols_disp_pm, txt_pm)
+
+            st.dataframe(df_pm_filtrado[cols_disp_pm], use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Reporte de Programa de Mantenimiento (.xlsx)",
+                data=generar_excel_bytes(df_pm_filtrado[cols_disp_pm], "Programa_Mantenimiento"),
+                file_name=f"Programa_Mantenimiento_Semanal_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
     else:
         st.info("No hay equipos activos en la Lista Maestra.")
