@@ -1139,13 +1139,13 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
-with tab_auditoria_z:
+    with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
         if df_vales.empty:
             st.info("No hay vales de combustible registrados en la base de datos.")
         else:
-            # 1. Cruzar con la Lista Maestra para obtener el Tipo de Flota
+            # Cruzar dinámicamente con Lista Maestra para obtener Tipo de Flota
             if not df_equipos.empty and "tipo_flota" in df_equipos.columns:
                 df_vales = df_vales.merge(
                     df_equipos[["placa", "tipo_flota"]], 
@@ -1156,7 +1156,6 @@ with tab_auditoria_z:
             else:
                 df_vales["tipo_flota"] = "Sin Categoría"
 
-            # 2. Asegurar formato correcto de fechas y números
             df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce")
             df_vales["cantidad_abas_campo"] = pd.to_numeric(df_vales["cantidad_abas_campo"], errors="coerce").fillna(0.0)
             df_vales["horometro"] = pd.to_numeric(df_vales["horometro"], errors="coerce").fillna(0.0)
@@ -1195,17 +1194,15 @@ with tab_auditoria_z:
             if df_val_filt.empty:
                 st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
             else:
-                # 3. ORDENAR CRONOLÓGICAMENTE ASCENDENTE PARA CALCULAR SHIFT
+                # Ordenamiento cronológico ascendente para cálculo del desplazamiento (shift)
                 df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_dt"], ascending=[True, True])
 
-                # 4. Traer la lectura del registro anterior por placa
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
                 df_val_filt["kilometraje_ant"] = df_val_filt.groupby("placa")["kilometraje"].shift(1)
 
                 df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
                 df_val_filt["delta_km"] = df_val_filt["kilometraje"] - df_val_filt["kilometraje_ant"]
 
-                # 5. Cálculo del Ratio
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
                     d_hr = row["delta_hr"]
@@ -1270,13 +1267,17 @@ with tab_auditoria_z:
                 
                 - **Ratio de Consumo:** Indica la tasa de trabajo por galón en función de las Horas o Kilómetros recorridos entre abastecimientos consecutivos ($\text{Gln/Hr}$ o $\text{KM/Gln}$).
                 - **Alertas Z-Score:** Marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una variación estadística atípica respecto al promedio histórico propio del equipo.
+                
+                **Instrucciones de Verificación Obligatorias:**
+                1. **Verificación de Campo:** Si un equipo presenta un disparo en galones desproporcionado a su ratio ($\text{Gln/Hr}$ elevado), inspeccionar de inmediato el tanque y validar si existió fuga física o inyectores defectuosos.
+                2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes físicos.
+                3. **Control Operacional:** Si el valor $Z > +3.0$ sin incremento en horas/kilómetros trabajados, **iniciar protocolo por posible ordeño de combustible o error de digitación**.
                 """)
 
-                # 6. Ordenar la vista descendentemente para la presentación
+                # Ordenar la presentación descendentemente
                 df_display = df_z.sort_values(by="fecha_dt", ascending=False).copy()
                 df_display["fecha_abastecimiento"] = df_display["fecha_dt"].dt.strftime('%Y-%m-%d')
 
-                # Inclusión explícita de 'tipo_flota' al lado de 'placa'
                 cols_mostrar_z = [
                     "fecha_abastecimiento", "placa", "tipo_flota", "cantidad_abas_campo", "ratio_consumo",
                     "z_score", "estado_alerta", "nombre_operador", "placa_cis_grifo", 
@@ -1307,6 +1308,7 @@ with tab_auditoria_z:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
+
 # ==========================================
 # MÓDULO 7: VALORIZACIÓN & CATÁLOGO DE INSUMOS
 # ==========================================
