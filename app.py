@@ -1139,7 +1139,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
-      with tab_auditoria_z:
+with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
         if df_vales.empty:
