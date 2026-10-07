@@ -1139,13 +1139,24 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
-    with tab_auditoria_z:
+     with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
         if df_vales.empty:
             st.info("No hay vales de combustible registrados en la base de datos.")
         else:
-            # 1. Asegurar formato correcto de fechas y números
+            # 1. Cruzar con la Lista Maestra para obtener el Tipo de Flota
+            if not df_equipos.empty and "tipo_flota" in df_equipos.columns:
+                df_vales = df_vales.merge(
+                    df_equipos[["placa", "tipo_flota"]], 
+                    on="placa", 
+                    how="left"
+                )
+                df_vales["tipo_flota"] = df_vales["tipo_flota"].fillna("Sin Categoría")
+            else:
+                df_vales["tipo_flota"] = "Sin Categoría"
+
+            # 2. Asegurar formato correcto de fechas y números
             df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce")
             df_vales["cantidad_abas_campo"] = pd.to_numeric(df_vales["cantidad_abas_campo"], errors="coerce").fillna(0.0)
             df_vales["horometro"] = pd.to_numeric(df_vales["horometro"], errors="coerce").fillna(0.0)
@@ -1184,17 +1195,17 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             if df_val_filt.empty:
                 st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
             else:
-                # 2. ORDENAR CRONOLÓGICAMENTE ASCENDENTE (del más antiguo al más reciente) PARA CALCULAR SHIFT
+                # 3. ORDENAR CRONOLÓGICAMENTE ASCENDENTE PARA CALCULAR SHIFT
                 df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_dt"], ascending=[True, True])
 
-                # 3. Traer la lectura del registro anterior
+                # 4. Traer la lectura del registro anterior por placa
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
                 df_val_filt["kilometraje_ant"] = df_val_filt.groupby("placa")["kilometraje"].shift(1)
 
                 df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
                 df_val_filt["delta_km"] = df_val_filt["kilometraje"] - df_val_filt["kilometraje_ant"]
 
-                # 4. Cálculo robusto del Ratio
+                # 5. Cálculo del Ratio
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
                     d_hr = row["delta_hr"]
@@ -1202,25 +1213,20 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     h_ant = row["horometro_ant"]
                     k_ant = row["kilometraje_ant"]
 
-                    # Si es el primer registro absoluto del equipo
                     if pd.isna(h_ant) and pd.isna(k_ant):
                         return "1er Registro / N/A"
 
                     if gal <= 0:
                         return "0.00 Gln"
 
-                    # Evaluación por Horómetro (Maquinaria)
                     if pd.notna(d_hr) and d_hr > 0:
                         gln_hr = gal / d_hr
                         return f"{gln_hr:.2f} Gln/Hr"
-                    
-                    # Evaluación por Kilometraje (Vehículos)
                     elif pd.notna(d_km) and d_km > 0:
                         km_gln = d_km / gal
                         return f"{km_gln:.2f} KM/Gln"
 
-                    # Si no hubo avance de horómetro/km respecto al punto anterior
-                    return "0.00 (Mismo Lectura)"
+                    return "0.00 (Misma Lectura)"
 
                 df_val_filt["ratio_consumo"] = df_val_filt.apply(calcular_ratio_consumo, axis=1)
 
@@ -1266,12 +1272,13 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 - **Alertas Z-Score:** Marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una variación estadística atípica respecto al promedio histórico propio del equipo.
                 """)
 
-                # 5. Ordenar la vista de la tabla de forma DESCENDENTE (el más reciente arriba) para mostrar al usuario
+                # 6. Ordenar la vista descendentemente para la presentación
                 df_display = df_z.sort_values(by="fecha_dt", ascending=False).copy()
                 df_display["fecha_abastecimiento"] = df_display["fecha_dt"].dt.strftime('%Y-%m-%d')
 
+                # Inclusión explícita de 'tipo_flota' al lado de 'placa'
                 cols_mostrar_z = [
-                    "fecha_abastecimiento", "placa", "cantidad_abas_campo", "ratio_consumo",
+                    "fecha_abastecimiento", "placa", "tipo_flota", "cantidad_abas_campo", "ratio_consumo",
                     "z_score", "estado_alerta", "nombre_operador", "placa_cis_grifo", 
                     "horometro", "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
                 ]
@@ -1282,6 +1289,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     df_display[cols_existentes_z],
                     column_config={
                         "fecha_abastecimiento": "Fecha",
+                        "placa": "Placa",
+                        "tipo_flota": "Tipo de Flota / Categoría",
                         "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
                         "ratio_consumo": st.column_config.TextColumn("Ratio de Consumo (Gln/Hr / KM/Gln)"),
                         "z_score": st.column_config.NumberColumn("Z-Score", format="%.2f"),
@@ -1297,7 +1306,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     file_name=f"Auditoria_Combustible_Ratios_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
-                )# ==========================================
+                )
+# ==========================================
 # MÓDULO 7: VALORIZACIÓN & CATÁLOGO DE INSUMOS
 # ==========================================
 elif modulo == "7. Valorización & Catálogo de Insumos":
