@@ -1068,6 +1068,11 @@ elif modulo == "5. Vale de Combustible & Z-Score":
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_vales = pd.DataFrame(vales) if vales else pd.DataFrame()
 
+    # Función auxiliar para identificar si es vehículo ligero/km o maquinaria/hrs
+    def es_vehiculo_kilometraje(tipo_flota_str):
+        tf_norm = normalizar_texto(tipo_flota_str)
+        return any(k in tf_norm for k in ["CAMIONETA", "VAN", "COASTER", "BUS", "AUTO", "PICKUP"])
+
     tab_reg_vale, tab_auditoria_z = st.tabs([
         "📝 Registro de Vale de Combustible",
         "📊 Auditoría de Fugas y Anomalías (Z-Score)"
@@ -1086,19 +1091,39 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             else:
                 opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
 
+                # 1. Obtener última lectura de la placa seleccionada
+                placa_temp = st.selectbox("Seleccione Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb, key="sel_placa_val")
+
+                # Obtener tipo de flota para saber si es KM u Horas
+                info_equipo_sel = df_activos_comb[df_activos_comb["placa"] == placa_temp].iloc[0].to_dict()
+                tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
+                es_km = es_vehiculo_kilometraje(tipo_flota_sel)
+                unidad_medida = "KM" if es_km else "Hrs"
+                limite_max_delta = 1000.0 if es_km else 50.0  # 1000 km para camionetas vs 50 hrs para maquinaria
+
+                ult_lectura = 0.0
+                if not df_vales.empty and "placa" in df_vales.columns:
+                    df_vales_placa = df_vales[df_vales["placa"] == placa_temp].copy()
+                    if not df_vales_placa.empty:
+                        df_vales_placa["fecha_dt"] = pd.to_datetime(df_vales_placa["fecha_abastecimiento"], errors="coerce")
+                        df_vales_placa = df_vales_placa.sort_values(by="fecha_dt", ascending=True)
+                        ult_lectura = float(pd.to_numeric(df_vales_placa.iloc[-1].get("horometro", 0.0), errors="coerce") or 0.0)
+
+                st.info(f"📌 **Equipo:** `{tipo_flota_sel}` | **Última lectura registrada:** `{ult_lectura:,.1f} {unidad_medida}`")
+
                 with st.form("form_vale_combustible", clear_on_submit=True):
                     st.markdown("##### ⛽ Datos del Despacho de Combustible")
                     cv1, cv2, cv3 = st.columns(3)
                     
                     with cv1:
                         fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
-                        placa_val_sel = st.selectbox("Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb)
+                        placa_val_sel = placa_temp
                         placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
                         cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
 
                     with cv2:
                         tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
-                        horometro = st.number_input("Horómetro Actual *", min_value=0.0, step=0.1)
+                        horometro = st.number_input(f"Lectura Actual ({unidad_medida}) *", min_value=0.0, step=0.1, value=float(ult_lectura))
                         frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
 
                     with cv3:
@@ -1107,11 +1132,24 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
                         detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
 
+                    # --- RESTRICCIÓN DE SEGURIDAD EN TIEMPO REAL ADAPTATIVA ---
+                    delta_ingresado = horometro - ult_lectura
+                    error_digitacion = False
+
+                    if ult_lectura > 0:
+                        if horometro < ult_lectura:
+                            st.error(f"🚫 **Error de Lectura:** La lectura ingresada ({horometro} {unidad_medida}) no puede ser menor a la anterior ({ult_lectura} {unidad_medida}).")
+                            error_digitacion = True
+                        elif delta_ingresado > limite_max_delta:
+                            st.warning(f"⚠️ **Alerta de Digitación:** El incremento es de {delta_ingresado:,.1f} {unidad_medida} (Supera el límite operativo prudente de {limite_max_delta} {unidad_medida}). Verifique si digitó un cero adicional.")
+
                     st.divider()
                     guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
 
                     if guardar_vale_btn:
-                        if placa_val_sel not in opciones_placas_comb:
+                        if error_digitacion:
+                            st.error("❌ Corrija la lectura del equipo antes de guardar el registro.")
+                        elif placa_val_sel not in opciones_placas_comb:
                             st.error("❌ La placa seleccionada no existe en la Lista Maestra de equipos.")
                         elif not dni_operador or cantidad_abas <= 0 or not placa_cis_grifo:
                             st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna, DNI y Cantidad > 0.")
@@ -1122,7 +1160,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                                 "placa_cis_grifo": placa_cis_grifo,
                                 "cantidad_abas_campo": cantidad_abas,
                                 "tipo_combustible": tipo_combustible,
-                                "horometro": horometro,
+                                "horometro": horometro,  # Almacena el valor de lectura (sea Horómetro o Kilometraje)
                                 "nombre_operador": nombre_operador,
                                 "dni_operador": dni_operador,
                                 "ing_responsable": ing_responsable,
@@ -1143,7 +1181,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         if df_vales.empty:
             st.info("No hay vales de combustible registrados en la base de datos.")
         else:
-            # Cruzar dinámicamente con Lista Maestra para obtener Tipo de Flota
+            # Cruzar con Lista Maestra para obtener Tipo de Flota
             if not df_equipos.empty and "tipo_flota" in df_equipos.columns:
                 df_vales = df_vales.merge(
                     df_equipos[["placa", "tipo_flota"]], 
@@ -1191,28 +1229,41 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             if df_val_filt.empty:
                 st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
             else:
-                # Ordenamiento cronológico ascendente para cálculo del desplazamiento (shift)
+                # Ordenamiento cronológico ascendente
                 df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_dt"], ascending=[True, True])
 
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
-                df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
+                df_val_filt["delta_lectura"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
 
+                # Función adaptativa para calcular Ratio según tipo de flota
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
-                    d_hr = row["delta_hr"]
+                    d_lec = row["delta_lectura"]
                     h_ant = row["horometro_ant"]
+                    tf = str(row["tipo_flota"])
+                    es_km = es_vehiculo_kilometraje(tf)
 
                     if pd.isna(h_ant):
                         return "1er Registro / N/A"
 
-                    if gal <= 0:
-                        return "0.00 Gln/Hr"
+                    if d_lec < 0:
+                        return "🔴 ERROR (Lectura Menor)"
 
-                    if pd.notna(d_hr) and d_hr > 0:
-                        gln_hr = gal / d_hr
+                    # Validación de umbral atípico adaptativo
+                    limite_alerta = 1000.0 if es_km else 60.0
+                    if d_lec > limite_alerta:
+                        u_med = "KM" if es_km else "hrs"
+                        return f"⚠️ REVISAR LECTURA (+{d_lec:.0f}{u_med})"
+
+                    if gal <= 0 or d_lec == 0:
+                        return "0.00"
+
+                    if es_km:
+                        km_gln = d_lec / gal
+                        return f"{km_gln:.2f} KM/Gln"
+                    else:
+                        gln_hr = gal / d_lec
                         return f"{gln_hr:.2f} Gln/Hr"
-
-                    return "0.00 (Mismo Horómetro)"
 
                 df_val_filt["ratio_consumo"] = df_val_filt.apply(calcular_ratio_consumo, axis=1)
 
@@ -1231,7 +1282,13 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 df_z["z_score"] = df_z.apply(calcular_z, axis=1).round(2)
 
-                def clasificar_alerta(z):
+                def clasificar_alerta(row):
+                    z = row["z_score"]
+                    ratio_txt = str(row["ratio_consumo"])
+                    
+                    if "ERROR" in ratio_txt or "REVISAR" in ratio_txt:
+                        return "🔴 ERROR DIGITACIÓN LECTURA"
+                    
                     abs_z = abs(z)
                     if abs_z > 3.0:
                         return "🔴 ALERTA CRÍTICA"
@@ -1239,28 +1296,24 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         return "🟡 SOSPECHOSO"
                     return "🟢 NORMAL"
 
-                df_z["estado_alerta"] = df_z["z_score"].apply(clasificar_alerta)
+                df_z["estado_alerta"] = df_z.apply(clasificar_alerta, axis=1)
 
                 # KPIs de Consumo
                 k1, k2, k3, k4 = st.columns(4)
                 k1.metric("Galones Totales", f"{df_z['cantidad_abas_campo'].sum():,.1f} Gal")
                 k2.metric("🟢 Abastecimientos Normales", len(df_z[df_z["estado_alerta"] == "🟢 NORMAL"]))
                 k3.metric("🟡 Sospechosos (|Z| > 2)", len(df_z[df_z["estado_alerta"] == "🟡 SOSPECHOSO"]))
-                k4.metric("🔴 Alertas Críticas (|Z| > 3)", len(df_z[df_z["estado_alerta"] == "🔴 ALERTA CRÍTICA"]))
+                k4.metric("🔴 Alertas / Errores Digitación", len(df_z[df_z["estado_alerta"].str.contains("🔴")]))
 
                 st.divider()
 
-                # --- NOTA TÉCNICA OBLIGATORIA SOBRE EL Z-SCORE Y RATIO ---
+                # --- NOTA TÉCNICA SOBRE DETECCIÓN DE ERRORES ADAPTATIVA ---
                 st.error("""
-                📌 **NOTA OPERATIVA Y DE AUDITORÍA SOBRE EL Z-SCORE Y RATIOS:**
+                📌 **NOTA DE AUDITORÍA Y CONTROL DE DIGITACIÓN ADAPTATIVO:**
                 
-                - **Ratio de Consumo:** Indica la tasa de trabajo por galón en función de las Horas recorridas entre abastecimientos consecutivos ($\text{Gln/Hr}$).
-                - **Alertas Z-Score:** Marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una variación estadística atípica respecto al promedio histórico propio del equipo.
-                
-                **Instrucciones de Verificación Obligatorias:**
-                1. **Verificación de Campo:** Si un equipo presenta un disparo en galones desproporcionado a su ratio ($\text{Gln/Hr}$ elevado), inspeccionar de inmediato el tanque y validar si existió fuga física o inyectores defectuosos.
-                2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes físicos.
-                3. **Control Operacional:** Si el valor $Z > +3.0$ sin incremento en horas trabajadas, **iniciar protocolo por posible ordeño de combustible o error de digitación**.
+                - **Vehículos Ligeros (Camionetas/Buses):** Miden el recorrido en **Kilómetros** ($\text{KM/Gln}$). Límite prudente entre abastecimientos: **1,000 KM**.
+                - **Maquinaria Pesada (Excavadoras/Volquetes):** Miden trabajo en **Horómetro** ($\text{Gln/Hr}$). Límite prudente entre abastecimientos: **60 Horas**.
+                - **Detectores de Error:** Si la diferencia excede el límite operativo prudente o la lectura retrocede, el sistema marca automáticamente **`🔴 ERROR DIGITACIÓN LECTURA`**.
                 """)
 
                 # Ordenar la presentación descendentemente
@@ -1282,7 +1335,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         "placa": "Placa",
                         "tipo_flota": "Tipo de Flota / Categoría",
                         "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
-                        "ratio_consumo": st.column_config.TextColumn("Ratio de Consumo (Gln/Hr)"),
+                        "ratio_consumo": st.column_config.TextColumn("Ratio (KM/Gln ó Gln/Hr)"),
+                        "horometro": st.column_config.NumberColumn("Lectura (KM / Hr)", format="%.1f"),
                         "z_score": st.column_config.NumberColumn("Z-Score", format="%.2f"),
                         "estado_alerta": "Alerta Fuga / Desviación",
                     },
