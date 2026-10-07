@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta, time
 import io
 import unicodedata
@@ -181,8 +182,6 @@ def obtener_rango_sabado_viernes(fecha_ref):
 
 def obtener_valor_umbral(tipo_flota):
     tf_norm = normalizar_texto(tipo_flota)
-    
-    # Búsqueda por coincidencia de subcadena para mayor flexibilidad
     if "CAMIONETA" in tf_norm:
         return 1500.0
     elif any(k in tf_norm for k in ["CISTERNA DE COMBUSTIBLE", "VAN", "COASTER"]):
@@ -200,7 +199,7 @@ modulo = st.sidebar.radio(
         "2. Estatus Equipo (Acreditaciones)",
         "3. Reporte Diario (Hoja RD)",
         "4. Programa Mantenimiento (Control Semanal)",
-        "5. Vale de Combustible (En desarrollo)",
+        "5. Vale de Combustible & Z-Score",
         "6. Registro Cisterna (En desarrollo)",
         "7. Valorización & Catálogo de Insumos"
     ]
@@ -413,7 +412,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
 # MÓDULO 2: ESTATUS EQUIPO (ACREDITACIONES)
 # ==========================================
 elif modulo == "2. Estatus Equipo (Acreditaciones)":
-    st.header("🛡️️ Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
+    st.header("🛡 Estatus del Equipo & Control de Acreditaciones (`estatus_equipo`)")
     st.caption("Sincronización en tiempo real con la Lista Maestra, días faltantes y semáforos de vencimiento.")
 
     equipos = consultar_tabla("lista_maestra")
@@ -895,13 +894,8 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
         df_pm_full["horometro_actual"] = pd.to_numeric(df_pm_full["horometro_actual"], errors="coerce").fillna(0.0)
         df_pm_full["frecuencia_mantenimiento"] = pd.to_numeric(df_pm_full["frecuencia_mantenimiento"], errors="coerce").fillna(250.0)
 
-        # promedio = (horometro_actual - semana_anterior) / 7
         df_pm_full["promedio"] = ((df_pm_full["horometro_actual"] - df_pm_full["semana_anterior"]) / 7.0).round(2)
-
-        # horometro_mnto = ultimo_pm + frecuencia_mantenimiento
         df_pm_full["horometro_mnto"] = (df_pm_full["ultimo_pm"] + df_pm_full["frecuencia_mantenimiento"]).round(2)
-
-        # horometro_faltante = horometro_mnto - horometro_actual
         df_pm_full["horometro_faltante"] = (df_pm_full["horometro_mnto"] - df_pm_full["horometro_actual"]).round(2)
 
         def calc_dias_faltante(row):
@@ -933,7 +927,6 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
             tf = row.get("tipo_flota", "")
             umbral_val = obtener_valor_umbral(tf)
 
-            # Si el equipo no ha registrado horometro actual o ultimo PM, evitar falso positivo en rojo
             if h_act == 0.0 or pd.isna(h_act):
                 return "🟢 Operativo"
 
@@ -1061,6 +1054,199 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 
     else:
         st.info("No hay equipos activos en la Lista Maestra.")
+
+# ==========================================
+# MÓDULO 5: VALE DE COMBUSTIBLE & Z-SCORE
+# ==========================================
+elif modulo == "5. Vale de Combustible & Z-Score":
+    st.header("⛽ Módulo 5: Vales de Combustible y Detección de Fugas (Z-Score)")
+    st.caption("Control estricto de consumos de combustible y detección estadística de anomalías o desviaciones.")
+
+    equipos = consultar_tabla("lista_maestra")
+    vales = consultar_tabla("vales_combustible")
+
+    df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
+    df_vales = pd.DataFrame(vales) if vales else pd.DataFrame()
+
+    tab_reg_vale, tab_auditoria_z = st.tabs([
+        "📝 Registro de Vale de Combustible",
+        "📊 Auditoría de Fugas y Anomalías (Z-Score)"
+    ])
+
+    with tab_reg_vale:
+        st.subheader("✍️ Registro de Abastecimiento en Campo")
+        
+        if df_equipos.empty:
+            st.warning("⚠️ Debe registrar equipos en la Lista Maestra antes de registrar vales de combustible.")
+        else:
+            df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
+            opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
+
+            with st.form("form_vale_combustible", clear_on_submit=True):
+                st.markdown("##### ⛽ Datos del Despacho de Combustible")
+                cv1, cv2, cv3 = st.columns(3)
+                
+                with cv1:
+                    fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
+                    placa_val_sel = st.selectbox("Placa / Código Equipo *", opciones_placas_comb)
+                    placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
+                    cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
+
+                with cv2:
+                    tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
+                    horometro = st.number_input("Horómetro Actual", min_value=0.0, step=0.1)
+                    kilometraje = st.number_input("Kilometraje Actual", min_value=0.0, step=1.0)
+                    frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
+
+                with cv3:
+                    nombre_operador = st.text_input("Nombre Operador *", placeholder="Ej: Juan Pérez").title().strip()
+                    dni_operador = st.text_input("DNI Operador *", max_chars=8).strip()
+                    ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
+                    detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
+
+                st.divider()
+                guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
+
+                if guardar_vale_btn:
+                    if not placa_val_sel or not dni_operador or cantidad_abas <= 0 or not placa_cis_grifo:
+                        st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna, DNI y Cantidad > 0.")
+                    else:
+                        payload_vale = {
+                            "fecha_abastecimiento": str(fecha_abas),
+                            "placa": placa_val_sel,
+                            "placa_cis_grifo": placa_cis_grifo,
+                            "cantidad_abas_campo": cantidad_abas,
+                            "tipo_combustible": tipo_combustible,
+                            "horometro": horometro,
+                            "kilometraje": kilometraje,
+                            "nombre_operador": nombre_operador,
+                            "dni_operador": dni_operador,
+                            "ing_responsable": ing_responsable,
+                            "frente_asignado": frente_asignado,
+                            "detalle_consumo": detalle_consumo
+                        }
+
+                        exito_v, res_v = insertar_registro("vales_combustible", payload_vale)
+                        if exito_v:
+                            st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
+
+    with tab_auditoria_z:
+        st.subheader("🔍 Auditoría de Consumos y Detección de Fugas mediante Z-Score")
+
+        if df_vales.empty:
+            st.info("No hay vales de combustible registrados en la base de datos.")
+        else:
+            df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce").dt.date
+            df_vales["cantidad_abas_campo"] = pd.to_numeric(df_vales["cantidad_abas_campo"], errors="coerce").fillna(0.0)
+
+            # --- SECCIÓN DE FILTROS ---
+            st.markdown("##### 🔍 Filtros de Auditoría")
+            fc1, fc2, fc3 = st.columns(3)
+
+            with fc1:
+                lista_placas = ["TODOS"] + sorted(df_vales["placa"].dropna().astype(str).unique().tolist())
+                filtro_placa = st.selectbox("Filtrar por Placa Equipo:", lista_placas)
+
+            with fc2:
+                lista_operadores = ["TODOS"] + sorted(df_vales["nombre_operador"].dropna().astype(str).unique().tolist())
+                filtro_operador = st.selectbox("Filtrar por Nombre de Operador:", lista_operadores)
+
+            with fc3:
+                min_f = df_vales["fecha_dt"].min() if pd.notna(df_vales["fecha_dt"].min()) else datetime.now().date()
+                max_f = df_vales["fecha_dt"].max() if pd.notna(df_vales["fecha_dt"].max()) else datetime.now().date()
+                rango_fechas = st.date_input("Rango de Fechas (Inicio - Fin):", value=(min_f, max_f))
+
+            # Aplicar filtros
+            df_val_filt = df_vales.copy()
+
+            if isinstance(rango_fechas, tuple) and len(rango_fechas) == 2:
+                f_ini, f_fin = rango_fechas
+                df_val_filt = df_val_filt[(df_val_filt["fecha_dt"] >= f_ini) & (df_val_filt["fecha_dt"] <= f_fin)]
+
+            if filtro_placa != "TODOS":
+                df_val_filt = df_val_filt[df_val_filt["placa"] == filtro_placa]
+
+            if filtro_operador != "TODOS":
+                df_val_filt = df_val_filt[df_val_filt["nombre_operador"] == filtro_operador]
+
+            if df_val_filt.empty:
+                st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
+            else:
+                # --- CÁLCULO ESTADÍSTICO DE Z-SCORE POR PLACA ---
+                stats_placa = df_val_filt.groupby("placa")["cantidad_abas_campo"].agg(["mean", "std", "count"]).reset_index()
+                stats_placa.rename(columns={"mean": "media_gal", "std": "desv_std", "count": "n_muestras"}, inplace=True)
+
+                df_z = df_val_filt.merge(stats_placa, on="placa", how="left")
+
+                def calcular_z(row):
+                    std = row["desv_std"]
+                    n = row["n_muestras"]
+                    if pd.isna(std) or std == 0 or n < 3:
+                        return 0.0
+                    return (row["cantidad_abas_campo"] - row["media_gal"]) / std
+
+                df_z["z_score"] = df_z.apply(calcular_z, axis=1).round(2)
+
+                def clasificar_alerta(z):
+                    abs_z = abs(z)
+                    if abs_z > 3.0:
+                        return "🔴 ALERTA CRÍTICA"
+                    elif abs_z > 2.0:
+                        return "🟡 SOSPECHOSO"
+                    return "🟢 NORMAL"
+
+                df_z["estado_alerta"] = df_z["z_score"].apply(clasificar_alerta)
+
+                # KPIs de Consumo
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Galones Totales", f"{df_z['cantidad_abas_campo'].sum():,.1f} Gal")
+                k2.metric("🟢 Abastecimientos Normales", len(df_z[df_z["estado_alerta"] == "🟢 NORMAL"]))
+                k3.metric("🟡 Sospechosos (|Z| > 2)", len(df_z[df_z["estado_alerta"] == "🟡 SOSPECHOSO"]))
+                k4.metric("🔴 Alertas Críticas (|Z| > 3)", len(df_z[df_z["estado_alerta"] == "🔴 ALERTA CRÍTICA"]))
+
+                st.divider()
+
+                # --- NOTA TÉCNICA OBLIGATORIA SOBRE EL Z-SCORE ---
+                st.error("""
+                📌 **NOTA OPERATIVA Y DE AUDITORÍA SOBRE EL Z-SCORE:**
+                
+                Las alertas marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una desviación estadística atípica respecto al patrón promedio histórico de abastecimiento de dicha unidad.
+                
+                **Instrucciones de Verificación Obligatorias:**
+                1. **Verificación de Campo:** Inspeccionar de inmediato el tanque del equipo y validar el horómetro/kilometraje registrado en la ficha del Módulo 3 para descartar fuga física o fallas en inyectores.
+                2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes de despacho físico.
+                3. **Control Operacional de Fugas:** Si el valor $Z$ es positivo severo ($Z > +3.0$) sin incremento justificado en horas trabajadas (HB), **iniciar protocolo de verificación por posible ordeño de combustible o inconsistencia en la digitación**.
+                """)
+
+                # Mostrar Tabla
+                cols_mostrar_z = [
+                    "fecha_abastecimiento", "placa", "cantidad_abas_campo", "z_score",
+                    "estado_alerta", "nombre_operador", "placa_cis_grifo", "horometro",
+                    "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
+                ]
+
+                st.dataframe(
+                    df_z[cols_mostrar_z].sort_values(by="fecha_abastecimiento", ascending=False),
+                    column_config={
+                        "fecha_abastecimiento": "Fecha",
+                        "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
+                        "z_score": st.column_config.NumberColumn("Z-Score", format="%.2f"),
+                        "estado_alerta": "Alerta Fuga / Desviación",
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.download_button(
+                    label="📥 Descargar Auditoría de Combustible en Excel (.xlsx)",
+                    data=generar_excel_bytes(df_z[cols_mostrar_z], "Auditoria_Combustible"),
+                    file_name=f"Auditoria_Combustible_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
 
 # ==========================================
 # MÓDULO 7: VALORIZACIÓN & CATÁLOGO DE INSUMOS
