@@ -1141,14 +1141,16 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
-    with tab_auditoria_z:
-        st.subheader("🔍 Auditoría de Consumos y Detección de Fugas mediante Z-Score")
+   with tab_auditoria_z:
+        st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
         if df_vales.empty:
             st.info("No hay vales de combustible registrados en la base de datos.")
         else:
             df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce").dt.date
             df_vales["cantidad_abas_campo"] = pd.to_numeric(df_vales["cantidad_abas_campo"], errors="coerce").fillna(0.0)
+            df_vales["horometro"] = pd.to_numeric(df_vales["horometro"], errors="coerce").fillna(0.0)
+            df_vales["kilometraje"] = pd.to_numeric(df_vales["kilometraje"], errors="coerce").fillna(0.0)
 
             # --- SECCIÓN DE FILTROS ---
             st.markdown("##### 🔍 Filtros de Auditoría")
@@ -1183,6 +1185,39 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             if df_val_filt.empty:
                 st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
             else:
+                # --- CÁLCULO DE RATIO Y DELTA DE RECORRIDO/HORAS POR PLACA ---
+                df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_abastecimiento"], ascending=[True, True])
+
+                # Diferencia respecto al abastecimiento anterior por cada placa
+                df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
+                df_val_filt["kilometraje_ant"] = df_val_filt.groupby("placa")["kilometraje"].shift(1)
+
+                df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
+                df_val_filt["delta_km"] = df_val_filt["kilometraje"] - df_val_filt["kilometraje_ant"]
+
+                # Función para determinar el ratio adecuado
+                def calcular_ratio_consumo(row):
+                    gal = row["cantidad_abas_campo"]
+                    d_hr = row["delta_hr"]
+                    d_km = row["delta_km"]
+
+                    if gal <= 0:
+                        return "0.00"
+
+                    # Si registró incremento en Horómetro (Maquinaria Pesada)
+                    if pd.notna(d_hr) and d_hr > 0:
+                        gln_hr = gal / d_hr
+                        return f"{gln_hr:.2f} Gln/Hr"
+                    
+                    # Si registró incremento en Kilometraje (Camionetas/Vehículos)
+                    elif pd.notna(d_km) and d_km > 0:
+                        km_gln = d_km / gal
+                        return f"{km_gln:.2f} KM/Gln"
+
+                    return "1er Registro / N/A"
+
+                df_val_filt["ratio_consumo"] = df_val_filt.apply(calcular_ratio_consumo, axis=1)
+
                 # --- CÁLCULO ESTADÍSTICO DE Z-SCORE POR PLACA ---
                 stats_placa = df_val_filt.groupby("placa")["cantidad_abas_campo"].agg(["mean", "std", "count"]).reset_index()
                 stats_placa.rename(columns={"mean": "media_gal", "std": "desv_std", "count": "n_muestras"}, inplace=True)
@@ -1217,26 +1252,26 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 st.divider()
 
-                # --- NOTA TÉCNICA OBLIGATORIA SOBRE EL Z-SCORE ---
+                # --- NOTA TÉCNICA OBLIGATORIA SOBRE EL Z-SCORE Y RATIO ---
                 st.error("""
-                📌 **NOTA OPERATIVA Y DE AUDITORÍA SOBRE EL Z-SCORE:**
+                📌 **NOTA OPERATIVA Y DE AUDITORÍA SOBRE EL Z-SCORE Y RATIOS:**
                 
-                Las alertas marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una desviación estadística atípica respecto al patrón promedio histórico de abastecimiento de dicha unidad.
+                - **Ratio de Consumo:** Indica la tasa de trabajo por galón en función de las Horas o Kilómetros recorridos entre abastecimientos consecutivos ($\text{Gln/Hr}$ o $\text{KM/Gln}$).
+                - **Alertas Z-Score:** Marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una variación estadística atípica respecto al promedio histórico propio del equipo.
                 
                 **Instrucciones de Verificación Obligatorias:**
-                1. **Verificación de Campo:** Inspeccionar de inmediato el tanque del equipo y validar el horómetro/kilometraje registrado en la ficha del Módulo 3 para descartar fuga física o fallas en inyectores.
-                2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes de despacho físico.
-                3. **Control Operacional de Fugas:** Si el valor $Z$ es positivo severo ($Z > +3.0$) sin incremento justificado en horas trabajadas (HB), **iniciar protocolo de verificación por posible ordeño de combustible o inconsistencia en la digitación**.
+                1. **Verificación de Campo:** Si un equipo presenta un disparo en galones desproporcionado a su ratio ($\text{Gln/Hr}$ elevado), inspeccionar de inmediato el tanque y validar si existió fuga física o inyectores defectuosos.
+                2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes físicos.
+                3. **Control Operacional:** Si el valor $Z > +3.0$ sin incremento en horas/kilómetros trabajados, **iniciar protocolo por posible ordeño de combustible o error de digitación**.
                 """)
 
                 # Mostrar Tabla Auditada
                 cols_mostrar_z = [
-                    "fecha_abastecimiento", "placa", "cantidad_abas_campo", "z_score",
-                    "estado_alerta", "nombre_operador", "placa_cis_grifo", "horometro",
-                    "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
+                    "fecha_abastecimiento", "placa", "cantidad_abas_campo", "ratio_consumo",
+                    "z_score", "estado_alerta", "nombre_operador", "placa_cis_grifo", 
+                    "horometro", "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
                 ]
 
-                # Asegurar que solo mostremos columnas que realmente existen en el DataFrame resultante
                 cols_existentes_z = [c for c in cols_mostrar_z if c in df_z.columns]
 
                 st.dataframe(
@@ -1244,6 +1279,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     column_config={
                         "fecha_abastecimiento": "Fecha",
                         "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
+                        "ratio_consumo": st.column_config.TextColumn("Ratio de Consumo (Gln/Hr / KM/Gln)"),
                         "z_score": st.column_config.NumberColumn("Z-Score", format="%.2f"),
                         "estado_alerta": "Alerta Fuga / Desviación",
                     },
@@ -1252,9 +1288,9 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 )
 
                 st.download_button(
-                    label="📥 Descargar Auditoría de Combustible en Excel (.xlsx)",
+                    label="📥 Descargar Auditoría de Combustible con Ratios en Excel (.xlsx)",
                     data=generar_excel_bytes(df_z[cols_existentes_z], "Auditoria_Combustible"),
-                    file_name=f"Auditoria_Combustible_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    file_name=f"Auditoria_Combustible_Ratios_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
