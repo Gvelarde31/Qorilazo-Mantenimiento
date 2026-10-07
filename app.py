@@ -1079,59 +1079,68 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         if df_equipos.empty:
             st.warning("⚠️ Debe registrar equipos en la Lista Maestra antes de registrar vales de combustible.")
         else:
+            # Filtrar estrictamente solo los equipos activos de la lista maestra
             df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
-            opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
+            
+            if df_activos_comb.empty:
+                st.warning("⚠️ No hay equipos con estado OPERATIVO en la Lista Maestra.")
+            else:
+                opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
 
-            with st.form("form_vale_combustible", clear_on_submit=True):
-                st.markdown("##### ⛽ Datos del Despacho de Combustible")
-                cv1, cv2, cv3 = st.columns(3)
-                
-                with cv1:
-                    fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
-                    placa_val_sel = st.selectbox("Placa / Código Equipo *", opciones_placas_comb)
-                    placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
-                    cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
+                with st.form("form_vale_combustible", clear_on_submit=True):
+                    st.markdown("##### ⛽ Datos del Despacho de Combustible")
+                    cv1, cv2, cv3 = st.columns(3)
+                    
+                    with cv1:
+                        fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
+                        # Selección obligatoria únicamente de placas de lista_maestra
+                        placa_val_sel = st.selectbox("Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb)
+                        placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
+                        cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
 
-                with cv2:
-                    tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
-                    horometro = st.number_input("Horómetro Actual", min_value=0.0, step=0.1)
-                    kilometraje = st.number_input("Kilometraje Actual", min_value=0.0, step=1.0)
-                    frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
+                    with cv2:
+                        tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
+                        horometro = st.number_input("Horómetro Actual", min_value=0.0, step=0.1)
+                        kilometraje = st.number_input("Kilometraje Actual", min_value=0.0, step=1.0)
+                        frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
 
-                with cv3:
-                    nombre_operador = st.text_input("Nombre Operador *", placeholder="Ej: Juan Pérez").title().strip()
-                    dni_operador = st.text_input("DNI Operador *", max_chars=8).strip()
-                    ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
-                    detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
+                    with cv3:
+                        nombre_operador = st.text_input("Nombre Operador *", placeholder="Ej: Juan Pérez").title().strip()
+                        dni_operador = st.text_input("DNI Operador *", max_chars=8).strip()
+                        ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
+                        detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
 
-                st.divider()
-                guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
+                    st.divider()
+                    guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
 
-                if guardar_vale_btn:
-                    if not placa_val_sel or not dni_operador or cantidad_abas <= 0 or not placa_cis_grifo:
-                        st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna, DNI y Cantidad > 0.")
-                    else:
-                        payload_vale = {
-                            "fecha_abastecimiento": str(fecha_abas),
-                            "placa": placa_val_sel,
-                            "placa_cis_grifo": placa_cis_grifo,
-                            "cantidad_abas_campo": cantidad_abas,
-                            "tipo_combustible": tipo_combustible,
-                            "horometro": horometro,
-                            "kilometraje": kilometraje,
-                            "nombre_operador": nombre_operador,
-                            "dni_operador": dni_operador,
-                            "ing_responsable": ing_responsable,
-                            "frente_asignado": frente_asignado,
-                            "detalle_consumo": detalle_consumo
-                        }
-
-                        exito_v, res_v = insertar_registro("vales_combustible", payload_vale)
-                        if exito_v:
-                            st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
-                            st.rerun()
+                    if guardar_vale_btn:
+                        # Validación estricta
+                        if placa_val_sel not in opciones_placas_comb:
+                            st.error("❌ La placa seleccionada no existe en la Lista Maestra de equipos.")
+                        elif not dni_operador or cantidad_abas <= 0 or not placa_cis_grifo:
+                            st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna, DNI y Cantidad > 0.")
                         else:
-                            st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
+                            payload_vale = {
+                                "fecha_abastecimiento": str(fecha_abas),
+                                "placa": placa_val_sel,
+                                "placa_cis_grifo": placa_cis_grifo,
+                                "cantidad_abas_campo": cantidad_abas,
+                                "tipo_combustible": tipo_combustible,
+                                "horometro": horometro,
+                                "kilometraje": kilometraje,
+                                "nombre_operador": nombre_operador,
+                                "dni_operador": dni_operador,
+                                "ing_responsable": ing_responsable,
+                                "frente_asignado": frente_asignado,
+                                "detalle_consumo": detalle_consumo
+                            }
+
+                            exito_v, res_v = insertar_registro("vales_combustible", payload_vale)
+                            if exito_v:
+                                st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
     with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos y Detección de Fugas mediante Z-Score")
@@ -1247,7 +1256,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
-
 # ==========================================
 # MÓDULO 7: VALORIZACIÓN & CATÁLOGO DE INSUMOS
 # ==========================================
