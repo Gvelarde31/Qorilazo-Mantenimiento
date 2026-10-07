@@ -1145,7 +1145,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         if df_vales.empty:
             st.info("No hay vales de combustible registrados en la base de datos.")
         else:
-            df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce").dt.date
+            # 1. Asegurar formato correcto de fechas y números
+            df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce")
             df_vales["cantidad_abas_campo"] = pd.to_numeric(df_vales["cantidad_abas_campo"], errors="coerce").fillna(0.0)
             df_vales["horometro"] = pd.to_numeric(df_vales["horometro"], errors="coerce").fillna(0.0)
             df_vales["kilometraje"] = pd.to_numeric(df_vales["kilometraje"], errors="coerce").fillna(0.0)
@@ -1163,8 +1164,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 filtro_operador = st.selectbox("Filtrar por Nombre de Operador:", lista_operadores)
 
             with fc3:
-                min_f = df_vales["fecha_dt"].min() if pd.notna(df_vales["fecha_dt"].min()) else datetime.now().date()
-                max_f = df_vales["fecha_dt"].max() if pd.notna(df_vales["fecha_dt"].max()) else datetime.now().date()
+                min_f = df_vales["fecha_dt"].min().date() if pd.notna(df_vales["fecha_dt"].min()) else datetime.now().date()
+                max_f = df_vales["fecha_dt"].max().date() if pd.notna(df_vales["fecha_dt"].max()) else datetime.now().date()
                 rango_fechas = st.date_input("Rango de Fechas (Inicio - Fin):", value=(min_f, max_f))
 
             # Aplicar filtros
@@ -1172,7 +1173,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
             if isinstance(rango_fechas, tuple) and len(rango_fechas) == 2:
                 f_ini, f_fin = rango_fechas
-                df_val_filt = df_val_filt[(df_val_filt["fecha_dt"] >= f_ini) & (df_val_filt["fecha_dt"] <= f_fin)]
+                df_val_filt = df_val_filt[(df_val_filt["fecha_dt"].dt.date >= f_ini) & (df_val_filt["fecha_dt"].dt.date <= f_fin)]
 
             if filtro_placa != "TODOS":
                 df_val_filt = df_val_filt[df_val_filt["placa"] == filtro_placa]
@@ -1183,31 +1184,43 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             if df_val_filt.empty:
                 st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
             else:
-                # --- CÁLCULO DE RATIO Y DELTA DE RECORRIDO/HORAS POR PLACA ---
-                df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_abastecimiento"], ascending=[True, True])
+                # 2. ORDENAR CRONOLÓGICAMENTE ASCENDENTE (del más antiguo al más reciente) PARA CALCULAR SHIFT
+                df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_dt"], ascending=[True, True])
 
+                # 3. Traer la lectura del registro anterior
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
                 df_val_filt["kilometraje_ant"] = df_val_filt.groupby("placa")["kilometraje"].shift(1)
 
                 df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
                 df_val_filt["delta_km"] = df_val_filt["kilometraje"] - df_val_filt["kilometraje_ant"]
 
+                # 4. Cálculo robusto del Ratio
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
                     d_hr = row["delta_hr"]
                     d_km = row["delta_km"]
+                    h_ant = row["horometro_ant"]
+                    k_ant = row["kilometraje_ant"]
+
+                    # Si es el primer registro absoluto del equipo
+                    if pd.isna(h_ant) and pd.isna(k_ant):
+                        return "1er Registro / N/A"
 
                     if gal <= 0:
-                        return "0.00"
+                        return "0.00 Gln"
 
+                    # Evaluación por Horómetro (Maquinaria)
                     if pd.notna(d_hr) and d_hr > 0:
                         gln_hr = gal / d_hr
                         return f"{gln_hr:.2f} Gln/Hr"
+                    
+                    # Evaluación por Kilometraje (Vehículos)
                     elif pd.notna(d_km) and d_km > 0:
                         km_gln = d_km / gal
                         return f"{km_gln:.2f} KM/Gln"
 
-                    return "1er Registro / N/A"
+                    # Si no hubo avance de horómetro/km respecto al punto anterior
+                    return "0.00 (Mismo Lectura)"
 
                 df_val_filt["ratio_consumo"] = df_val_filt.apply(calcular_ratio_consumo, axis=1)
 
@@ -1251,24 +1264,22 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 
                 - **Ratio de Consumo:** Indica la tasa de trabajo por galón en función de las Horas o Kilómetros recorridos entre abastecimientos consecutivos ($\text{Gln/Hr}$ o $\text{KM/Gln}$).
                 - **Alertas Z-Score:** Marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una variación estadística atípica respecto al promedio histórico propio del equipo.
-                
-                **Instrucciones de Verificación Obligatorias:**
-                1. **Verificación de Campo:** Si un equipo presenta un disparo en galones desproporcionado a su ratio ($\text{Gln/Hr}$ elevado), inspeccionar de inmediato el tanque y validar si existió fuga física o inyectores defectuosos.
-                2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes físicos.
-                3. **Control Operacional:** Si el valor $Z > +3.0$ sin incremento en horas/kilómetros trabajados, **iniciar protocolo por posible ordeño de combustible o error de digitación**.
                 """)
 
-                # Mostrar Tabla Auditada
+                # 5. Ordenar la vista de la tabla de forma DESCENDENTE (el más reciente arriba) para mostrar al usuario
+                df_display = df_z.sort_values(by="fecha_dt", ascending=False).copy()
+                df_display["fecha_abastecimiento"] = df_display["fecha_dt"].dt.strftime('%Y-%m-%d')
+
                 cols_mostrar_z = [
                     "fecha_abastecimiento", "placa", "cantidad_abas_campo", "ratio_consumo",
                     "z_score", "estado_alerta", "nombre_operador", "placa_cis_grifo", 
                     "horometro", "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
                 ]
 
-                cols_existentes_z = [c for c in cols_mostrar_z if c in df_z.columns]
+                cols_existentes_z = [c for c in cols_mostrar_z if c in df_display.columns]
 
                 st.dataframe(
-                    df_z[cols_existentes_z].sort_values(by="fecha_abastecimiento", ascending=False),
+                    df_display[cols_existentes_z],
                     column_config={
                         "fecha_abastecimiento": "Fecha",
                         "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
@@ -1282,12 +1293,11 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 st.download_button(
                     label="📥 Descargar Auditoría de Combustible en Excel (.xlsx)",
-                    data=generar_excel_bytes(df_z[cols_existentes_z], "Auditoria_Combustible"),
+                    data=generar_excel_bytes(df_display[cols_existentes_z], "Auditoria_Combustible"),
                     file_name=f"Auditoria_Combustible_Ratios_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
-                )
-# ==========================================
+                )# ==========================================
 # MÓDULO 7: VALORIZACIÓN & CATÁLOGO DE INSUMOS
 # ==========================================
 elif modulo == "7. Valorización & Catálogo de Insumos":
