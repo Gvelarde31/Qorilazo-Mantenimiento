@@ -1063,7 +1063,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
     st.caption("Control estricto de consumos de combustible y detección estadística de anomalías o desviaciones.")
 
     equipos = consultar_tabla("lista_maestra")
-    vales = consultar_tabla("vales_combustible")
+    # Sincronización corregida apuntando a la tabla singular 'vale_combustible'
+    vales = consultar_tabla("vale_combustible")
 
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_vales = pd.DataFrame(vales) if vales else pd.DataFrame()
@@ -1079,7 +1080,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         if df_equipos.empty:
             st.warning("⚠️ Debe registrar equipos en la Lista Maestra antes de registrar vales de combustible.")
         else:
-            # Filtrar estrictamente solo los equipos activos de la lista maestra
             df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             
             if df_activos_comb.empty:
@@ -1093,7 +1093,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     
                     with cv1:
                         fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
-                        # Selección obligatoria únicamente de placas de lista_maestra
                         placa_val_sel = st.selectbox("Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb)
                         placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
                         cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
@@ -1114,7 +1113,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
 
                     if guardar_vale_btn:
-                        # Validación estricta
                         if placa_val_sel not in opciones_placas_comb:
                             st.error("❌ La placa seleccionada no existe en la Lista Maestra de equipos.")
                         elif not dni_operador or cantidad_abas <= 0 or not placa_cis_grifo:
@@ -1135,7 +1133,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                                 "detalle_consumo": detalle_consumo
                             }
 
-                            exito_v, res_v = insertar_registro("vales_combustible", payload_vale)
+                            # Inserción dirigida a la tabla 'vale_combustible'
+                            exito_v, res_v = insertar_registro("vale_combustible", payload_vale)
                             if exito_v:
                                 st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
                                 st.rerun()
@@ -1230,15 +1229,18 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 3. **Control Operacional de Fugas:** Si el valor $Z$ es positivo severo ($Z > +3.0$) sin incremento justificado en horas trabajadas (HB), **iniciar protocolo de verificación por posible ordeño de combustible o inconsistencia en la digitación**.
                 """)
 
-                # Mostrar Tabla
+                # Mostrar Tabla Auditada
                 cols_mostrar_z = [
                     "fecha_abastecimiento", "placa", "cantidad_abas_campo", "z_score",
                     "estado_alerta", "nombre_operador", "placa_cis_grifo", "horometro",
                     "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
                 ]
 
+                # Asegurar que solo mostremos columnas que realmente existen en el DataFrame resultante
+                cols_existentes_z = [c for c in cols_mostrar_z if c in df_z.columns]
+
                 st.dataframe(
-                    df_z[cols_mostrar_z].sort_values(by="fecha_abastecimiento", ascending=False),
+                    df_z[cols_existentes_z].sort_values(by="fecha_abastecimiento", ascending=False),
                     column_config={
                         "fecha_abastecimiento": "Fecha",
                         "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
@@ -1251,7 +1253,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 st.download_button(
                     label="📥 Descargar Auditoría de Combustible en Excel (.xlsx)",
-                    data=generar_excel_bytes(df_z[cols_mostrar_z], "Auditoria_Combustible"),
+                    data=generar_excel_bytes(df_z[cols_existentes_z], "Auditoria_Combustible"),
                     file_name=f"Auditoria_Combustible_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
