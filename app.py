@@ -1063,7 +1063,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
     st.caption("Control estricto de consumos de combustible y detección estadística de anomalías o desviaciones.")
 
     equipos = consultar_tabla("lista_maestra")
-    # Sincronización corregida apuntando a la tabla singular 'vale_combustible'
     vales = consultar_tabla("vale_combustible")
 
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
@@ -1133,7 +1132,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                                 "detalle_consumo": detalle_consumo
                             }
 
-                            # Inserción dirigida a la tabla 'vale_combustible'
                             exito_v, res_v = insertar_registro("vale_combustible", payload_vale)
                             if exito_v:
                                 st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
@@ -1141,7 +1139,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
-   with tab_auditoria_z:
+    with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
         if df_vales.empty:
@@ -1188,14 +1186,12 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 # --- CÁLCULO DE RATIO Y DELTA DE RECORRIDO/HORAS POR PLACA ---
                 df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_abastecimiento"], ascending=[True, True])
 
-                # Diferencia respecto al abastecimiento anterior por cada placa
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
                 df_val_filt["kilometraje_ant"] = df_val_filt.groupby("placa")["kilometraje"].shift(1)
 
                 df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
                 df_val_filt["delta_km"] = df_val_filt["kilometraje"] - df_val_filt["kilometraje_ant"]
 
-                # Función para determinar el ratio adecuado
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
                     d_hr = row["delta_hr"]
@@ -1204,12 +1200,9 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     if gal <= 0:
                         return "0.00"
 
-                    # Si registró incremento en Horómetro (Maquinaria Pesada)
                     if pd.notna(d_hr) and d_hr > 0:
                         gln_hr = gal / d_hr
                         return f"{gln_hr:.2f} Gln/Hr"
-                    
-                    # Si registró incremento en Kilometraje (Camionetas/Vehículos)
                     elif pd.notna(d_km) and d_km > 0:
                         km_gln = d_km / gal
                         return f"{km_gln:.2f} KM/Gln"
@@ -1288,7 +1281,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 )
 
                 st.download_button(
-                    label="📥 Descargar Auditoría de Combustible con Ratios en Excel (.xlsx)",
+                    label="📥 Descargar Auditoría de Combustible en Excel (.xlsx)",
                     data=generar_excel_bytes(df_z[cols_existentes_z], "Auditoria_Combustible"),
                     file_name=f"Auditoria_Combustible_Ratios_ZScore_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
