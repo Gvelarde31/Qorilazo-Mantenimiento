@@ -1098,8 +1098,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                     with cv2:
                         tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
-                        horometro = st.number_input("Horómetro Actual", min_value=0.0, step=0.1)
-                        kilometraje = st.number_input("Kilometraje Actual", min_value=0.0, step=1.0)
+                        horometro = st.number_input("Horómetro Actual *", min_value=0.0, step=0.1)
                         frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
 
                     with cv3:
@@ -1124,7 +1123,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                                 "cantidad_abas_campo": cantidad_abas,
                                 "tipo_combustible": tipo_combustible,
                                 "horometro": horometro,
-                                "kilometraje": kilometraje,
                                 "nombre_operador": nombre_operador,
                                 "dni_operador": dni_operador,
                                 "ing_responsable": ing_responsable,
@@ -1159,7 +1157,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             df_vales["fecha_dt"] = pd.to_datetime(df_vales["fecha_abastecimiento"], errors="coerce")
             df_vales["cantidad_abas_campo"] = pd.to_numeric(df_vales["cantidad_abas_campo"], errors="coerce").fillna(0.0)
             df_vales["horometro"] = pd.to_numeric(df_vales["horometro"], errors="coerce").fillna(0.0)
-            df_vales["kilometraje"] = pd.to_numeric(df_vales["kilometraje"], errors="coerce").fillna(0.0)
 
             # --- SECCIÓN DE FILTROS ---
             st.markdown("##### 🔍 Filtros de Auditoría")
@@ -1198,32 +1195,24 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_dt"], ascending=[True, True])
 
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
-                df_val_filt["kilometraje_ant"] = df_val_filt.groupby("placa")["kilometraje"].shift(1)
-
                 df_val_filt["delta_hr"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
-                df_val_filt["delta_km"] = df_val_filt["kilometraje"] - df_val_filt["kilometraje_ant"]
 
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
                     d_hr = row["delta_hr"]
-                    d_km = row["delta_km"]
                     h_ant = row["horometro_ant"]
-                    k_ant = row["kilometraje_ant"]
 
-                    if pd.isna(h_ant) and pd.isna(k_ant):
+                    if pd.isna(h_ant):
                         return "1er Registro / N/A"
 
                     if gal <= 0:
-                        return "0.00 Gln"
+                        return "0.00 Gln/Hr"
 
                     if pd.notna(d_hr) and d_hr > 0:
                         gln_hr = gal / d_hr
                         return f"{gln_hr:.2f} Gln/Hr"
-                    elif pd.notna(d_km) and d_km > 0:
-                        km_gln = d_km / gal
-                        return f"{km_gln:.2f} KM/Gln"
 
-                    return "0.00 (Misma Lectura)"
+                    return "0.00 (Mismo Horómetro)"
 
                 df_val_filt["ratio_consumo"] = df_val_filt.apply(calcular_ratio_consumo, axis=1)
 
@@ -1265,13 +1254,13 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 st.error("""
                 📌 **NOTA OPERATIVA Y DE AUDITORÍA SOBRE EL Z-SCORE Y RATIOS:**
                 
-                - **Ratio de Consumo:** Indica la tasa de trabajo por galón en función de las Horas o Kilómetros recorridos entre abastecimientos consecutivos ($\text{Gln/Hr}$ o $\text{KM/Gln}$).
+                - **Ratio de Consumo:** Indica la tasa de trabajo por galón en función de las Horas recorridas entre abastecimientos consecutivos ($\text{Gln/Hr}$).
                 - **Alertas Z-Score:** Marcadas como **🔴 ALERTA CRÍTICA (|Z| > 3.0)** o **🟡 SOSPECHOSO (|Z| > 2.0)** indican una variación estadística atípica respecto al promedio histórico propio del equipo.
                 
                 **Instrucciones de Verificación Obligatorias:**
                 1. **Verificación de Campo:** Si un equipo presenta un disparo en galones desproporcionado a su ratio ($\text{Gln/Hr}$ elevado), inspeccionar de inmediato el tanque y validar si existió fuga física o inyectores defectuosos.
                 2. **Auditoría de Vales vs. Cisterna:** Cruzar la `cantidad_abas_campo` reportada por la `placa_cis_grifo` con los comprobantes físicos.
-                3. **Control Operacional:** Si el valor $Z > +3.0$ sin incremento en horas/kilómetros trabajados, **iniciar protocolo por posible ordeño de combustible o error de digitación**.
+                3. **Control Operacional:** Si el valor $Z > +3.0$ sin incremento en horas trabajadas, **iniciar protocolo por posible ordeño de combustible o error de digitación**.
                 """)
 
                 # Ordenar la presentación descendentemente
@@ -1281,7 +1270,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 cols_mostrar_z = [
                     "fecha_abastecimiento", "placa", "tipo_flota", "cantidad_abas_campo", "ratio_consumo",
                     "z_score", "estado_alerta", "nombre_operador", "placa_cis_grifo", 
-                    "horometro", "kilometraje", "ing_responsable", "frente_asignado", "detalle_consumo"
+                    "horometro", "ing_responsable", "frente_asignado", "detalle_consumo"
                 ]
 
                 cols_existentes_z = [c for c in cols_mostrar_z if c in df_display.columns]
@@ -1293,7 +1282,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         "placa": "Placa",
                         "tipo_flota": "Tipo de Flota / Categoría",
                         "cantidad_abas_campo": st.column_config.NumberColumn("Galones Despachados", format="%.2f Gal"),
-                        "ratio_consumo": st.column_config.TextColumn("Ratio de Consumo (Gln/Hr / KM/Gln)"),
+                        "ratio_consumo": st.column_config.TextColumn("Ratio de Consumo (Gln/Hr)"),
                         "z_score": st.column_config.NumberColumn("Z-Score", format="%.2f"),
                         "estado_alerta": "Alerta Fuga / Desviación",
                     },
