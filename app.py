@@ -14,8 +14,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# Estilo personalizado para ocultar menú predeterminado de Streamlit si se requiere
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("🚜 QORILAZO - Control y Mantenimiento de Flota")
-st.caption("Corredor Minero Apurímac - Cusco")
+st.caption("🏢 Programa de Fortalecimiento Empresarial | Corredor Minero Apurímac - Cusco")
 
 # Lectura segura de Secrets de Supabase
 try:
@@ -191,7 +199,11 @@ def obtener_valor_umbral(tipo_flota):
     else:
         return 250.0
 
-# Menú Lateral
+def es_vehiculo_kilometraje(tipo_flota_str):
+    tf_norm = normalizar_texto(tipo_flota_str)
+    return any(k in tf_norm for k in ["CAMIONETA", "VAN", "COASTER", "BUS", "AUTO", "PICKUP"])
+
+# Menú Lateral Reorganizado
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
     [
@@ -200,8 +212,7 @@ modulo = st.sidebar.radio(
         "3. Reporte Diario (Hoja RD)",
         "4. Programa Mantenimiento (Control Semanal)",
         "5. Vale de Combustible & Z-Score",
-        "6. Registro Cisterna (En desarrollo)",
-        "7. Valorización & Catálogo de Insumos"
+        "6. Valorización & Catálogo de Insumos"
     ]
 )
 
@@ -210,7 +221,7 @@ modulo = st.sidebar.radio(
 # ==========================================
 if modulo == "1. Lista Maestra (Alta y Baja)":
     st.header("📋 Lista Maestra de Flota (`lista_maestra`)")
-    st.caption("Administración de datos maestros, altas, retiros y filtros universales por cualquier columna.")
+    st.caption("Administración de datos maestros, altas, retiros, números de contrato y filtros universales.")
 
     equipos = consultar_tabla("lista_maestra")
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
@@ -227,7 +238,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
             
             cols_deseadas = [
-                "codigo_interno", "placa", "tipo_flota", "frecuencia_mantenimiento", "anio",
+                "codigo_interno", "placa", "numero_contrato", "tipo_flota", "frecuencia_mantenimiento", "anio",
                 "marca", "modelo", "capacidad", "razon_social", "ruc", "contacto",
                 "propietario", "comunidad", "potencia_kw", "potencia_hp", "potencia_cv",
                 "fecha_ingreso_proyecto", "frente_asignado"
@@ -253,7 +264,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                     st.selectbox("2. Valor de Filtro:", ["TODOS"], disabled=True)
                     
             with f_col3:
-                busqueda_texto = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Marca, Modelo, etc.):").strip()
+                busqueda_texto = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Contrato, Marca, Modelo, etc.):").strip()
 
             df_filtrado = df_activos.copy()
             
@@ -284,21 +295,22 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
     with tab_agregar:
         st.subheader("➕ Agregar Nuevo Equipo a la Lista Maestra")
         with st.form("form_alta_equipo", clear_on_submit=True):
-            st.markdown("##### 📍 Datos de Identificación y Operación")
+            st.markdown("##### 📍 Datos de Identificación, Contrato y Operación")
             c1, c2, c3 = st.columns(3)
             with c1:
                 placa = st.text_input("Placa del Vehículo / Serie *").upper().strip()
                 codigo_interno = st.text_input("Código Interno *").upper().strip()
+                numero_contrato = st.text_input("Número de Contrato *", placeholder="Ej: CTR-2024-089").upper().strip()
+            with c2:
                 tipo_flota = st.selectbox("Tipo de Flota / Categoría *", [
                     "Camioneta", "Volquete", "Cisterna de Agua", "Cisterna de Combustible",
                     "Motoniveladora", "Rodillo Compactador", "Retroexcavadora", 
                     "Excavadora", "Cargador Frontal", "Tractor de Oruga", "Coaster", "Van", "Otro"
                 ])
-            with c2:
                 frecuencia_pm = st.number_input("Frecuencia PM (Horas / KM) *", min_value=100, step=50, value=250)
                 frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
-                fecha_ingreso = st.date_input("Fecha de Ingreso al Proyecto *", datetime.now().date())
             with c3:
+                fecha_ingreso = st.date_input("Fecha de Ingreso al Proyecto *", datetime.now().date())
                 marca = st.text_input("Marca")
                 modelo = st.text_input("Modelo")
                 anio = st.number_input("Año de Fabricación", min_value=1990, max_value=2030, value=2024, step=1)
@@ -336,6 +348,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
                     nuevo_registro = {
                         "placa": placa,
                         "codigo_interno": codigo_interno,
+                        "numero_contrato": numero_contrato if numero_contrato else None,
                         "tipo_flota": tipo_flota,
                         "frecuencia_mantenimiento": frecuencia_pm,
                         "frente_asignado": frente_asignado,
@@ -392,7 +405,7 @@ if modulo == "1. Lista Maestra (Alta y Baja)":
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_inactivos = df_equipos[df_equipos["estado_operativo"] == "RETIRADO"].copy()
             if not df_inactivos.empty:
-                cols_mostrar_in = ["codigo_interno", "placa", "tipo_flota", "marca", "frente_asignado", "propietario"]
+                cols_mostrar_in = ["codigo_interno", "placa", "numero_contrato", "tipo_flota", "marca", "frente_asignado", "propietario"]
                 cols_existentes_in = [c for c in cols_mostrar_in if c in df_inactivos.columns]
                 st.dataframe(df_inactivos[cols_existentes_in], use_container_width=True)
 
@@ -477,7 +490,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
             st.subheader("🔍 Filtro Específico por Permiso y Estado de Vencimiento")
 
             cols_export_estatus = [
-                "tipo_flota", "codigo_interno", "placa", "frente_asignado", "fotocheck",
+                "tipo_flota", "codigo_interno", "placa", "numero_contrato", "frente_asignado", "fotocheck",
                 "soat", "dias_faltante_soat", "estado_soat",
                 "poliza", "dias_faltante_poliza", "estado_poliza",
                 "retorqueo", "dias_faltante_retorqueo", "estado_retorqueo",
@@ -718,11 +731,11 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                     actividad_rd = st.text_area("ACTIVIDAD / DETALLE DE TRABAJO", value=reg_existente.get("actividad", ""))
                     backlog_rd = st.text_input("BACKLOG / OBSERVACIONES", value=reg_existente.get("backlog", ""))
                 with r8:
-                    insumo_seleccionado = st.selectbox("SELECCIONAR INSUMO DE ALMACÉN (MÓDULO 7)", opciones_ins_cat, index=idx_ins_cat)
+                    insumo_seleccionado = st.selectbox("SELECCIONAR INSUMO DE ALMACÉN (MÓDULO 6)", opciones_ins_cat, index=idx_ins_cat)
                     
                     if insumo_seleccionado != "NINGUNO" and insumo_seleccionado in dict_precios_cat:
                         precio_auto = dict_precios_cat[insumo_seleccionado]
-                        st.caption(f"📦 **Precio automático del modulo 7:** S/. {precio_auto:.2f}")
+                        st.caption(f"📦 **Precio automático del módulo 6:** S/. {precio_auto:.2f}")
                     else:
                         precio_auto = float(reg_existente.get("precio_insumo", 0.0) or 0.0)
 
@@ -759,9 +772,9 @@ elif modulo == "3. Reporte Diario (Hoja RD)":
                         "horas_mc": horas_mc_calc,
                         "hb": hb_sel,
                         "dm": dm_num,
-                        "precio": precio_mo,               # Columna 'precio' (Mano de Obra)
+                        "precio": precio_mo,               # Mano de Obra
                         "detalle_insumo": insumo_seleccionado if insumo_seleccionado != "NINGUNO" else "",
-                        "precio_insumo": precio_insumo    # Columna 'precio_insumo'
+                        "precio_insumo": precio_insumo    # Precio Insumo
                     }
 
                     if "id" in reg_existente:
@@ -953,7 +966,7 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
             st.divider()
 
             cols_orden_cliente = [
-                "tipo_flota", "marca", "modelo", "frente_asignado", "placa", "codigo_interno",
+                "tipo_flota", "marca", "modelo", "frente_asignado", "placa", "codigo_interno", "numero_contrato",
                 "semana_anterior", "promedio", "ultimo_pm", "fecha_manual", "horometro_actual",
                 "horometro_mnto", "estado_actual", "fecha_actual", "fecha_aprox",
                 "horometro_faltante", "dias_faltante"
@@ -1068,11 +1081,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_vales = pd.DataFrame(vales) if vales else pd.DataFrame()
 
-    # Función auxiliar para identificar si es vehículo ligero/km o maquinaria/hrs
-    def es_vehiculo_kilometraje(tipo_flota_str):
-        tf_norm = normalizar_texto(tipo_flota_str)
-        return any(k in tf_norm for k in ["CAMIONETA", "VAN", "COASTER", "BUS", "AUTO", "PICKUP"])
-
     tab_reg_vale, tab_auditoria_z = st.tabs([
         "📝 Registro de Vale de Combustible",
         "📊 Auditoría de Fugas y Anomalías (Z-Score)"
@@ -1091,15 +1099,13 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             else:
                 opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
 
-                # 1. Obtener última lectura de la placa seleccionada
                 placa_temp = st.selectbox("Seleccione Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb, key="sel_placa_val")
 
-                # Obtener tipo de flota para saber si es KM u Horas
                 info_equipo_sel = df_activos_comb[df_activos_comb["placa"] == placa_temp].iloc[0].to_dict()
                 tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
                 es_km = es_vehiculo_kilometraje(tipo_flota_sel)
                 unidad_medida = "KM" if es_km else "Hrs"
-                limite_max_delta = 1000.0 if es_km else 50.0  # 1000 km para camionetas vs 50 hrs para maquinaria
+                limite_max_delta = 1000.0 if es_km else 50.0
 
                 ult_lectura = 0.0
                 if not df_vales.empty and "placa" in df_vales.columns:
@@ -1132,7 +1138,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
                         detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
 
-                    # --- RESTRICCIÓN DE SEGURIDAD EN TIEMPO REAL ADAPTATIVA ---
                     delta_ingresado = horometro - ult_lectura
                     error_digitacion = False
 
@@ -1141,7 +1146,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             st.error(f"🚫 **Error de Lectura:** La lectura ingresada ({horometro} {unidad_medida}) no puede ser menor a la anterior ({ult_lectura} {unidad_medida}).")
                             error_digitacion = True
                         elif delta_ingresado > limite_max_delta:
-                            st.warning(f"⚠️ **Alerta de Digitación:** El incremento es de {delta_ingresado:,.1f} {unidad_medida} (Supera el límite operativo prudente de {limite_max_delta} {unidad_medida}). Verifique si digitó un cero adicional.")
+                            st.warning(f"⚠️ **Alerta de Digitación:** El incremento es de {delta_ingresado:,.1f} {unidad_medida} (Supera el límite de {limite_max_delta} {unidad_medida}). Verifique si digitó un cero extra.")
 
                     st.divider()
                     guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
@@ -1160,7 +1165,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                                 "placa_cis_grifo": placa_cis_grifo,
                                 "cantidad_abas_campo": cantidad_abas,
                                 "tipo_combustible": tipo_combustible,
-                                "horometro": horometro,  # Almacena el valor de lectura (sea Horómetro o Kilometraje)
+                                "horometro": horometro,
                                 "nombre_operador": nombre_operador,
                                 "dni_operador": dni_operador,
                                 "ing_responsable": ing_responsable,
@@ -1181,7 +1186,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         if df_vales.empty:
             st.info("No hay vales de combustible registrados en la base de datos.")
         else:
-            # Cruzar con Lista Maestra para obtener Tipo de Flota
             if not df_equipos.empty and "tipo_flota" in df_equipos.columns:
                 df_vales = df_vales.merge(
                     df_equipos[["placa", "tipo_flota"]], 
@@ -1229,13 +1233,11 @@ elif modulo == "5. Vale de Combustible & Z-Score":
             if df_val_filt.empty:
                 st.warning("No hay datos de consumos que coincidan con los filtros seleccionados.")
             else:
-                # Ordenamiento cronológico ascendente
                 df_val_filt = df_val_filt.sort_values(by=["placa", "fecha_dt"], ascending=[True, True])
 
                 df_val_filt["horometro_ant"] = df_val_filt.groupby("placa")["horometro"].shift(1)
                 df_val_filt["delta_lectura"] = df_val_filt["horometro"] - df_val_filt["horometro_ant"]
 
-                # Función adaptativa para calcular Ratio según tipo de flota
                 def calcular_ratio_consumo(row):
                     gal = row["cantidad_abas_campo"]
                     d_lec = row["delta_lectura"]
@@ -1249,7 +1251,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     if d_lec < 0:
                         return "🔴 ERROR (Lectura Menor)"
 
-                    # Validación de umbral atípico adaptativo
                     limite_alerta = 1000.0 if es_km else 60.0
                     if d_lec > limite_alerta:
                         u_med = "KM" if es_km else "hrs"
@@ -1307,16 +1308,15 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 st.divider()
 
-                # --- NOTA TÉCNICA SOBRE DETECCIÓN DE ERRORES ADAPTATIVA ---
+                # --- NOTA TÉCNICA SOBRE DETECCIÓN DE ERRORES ---
                 st.error("""
                 📌 **NOTA DE AUDITORÍA Y CONTROL DE DIGITACIÓN ADAPTATIVO:**
                 
-                - **Vehículos Ligeros (Camionetas/Buses):** Miden el recorrido en **Kilómetros** ($\text{KM/Gln}$). Límite prudente entre abastecimientos: **1,000 KM**.
-                - **Maquinaria Pesada (Excavadoras/Volquetes):** Miden trabajo en **Horómetro** ($\text{Gln/Hr}$). Límite prudente entre abastecimientos: **60 Horas**.
-                - **Detectores de Error:** Si la diferencia excede el límite operativo prudente o la lectura retrocede, el sistema marca automáticamente **`🔴 ERROR DIGITACIÓN LECTURA`**.
+                - **Vehículos Ligeros (Camionetas/Buses):** Miden en **Kilómetros** ($\text{KM/Gln}$). Límite de alerta: **1,000 KM**.
+                - **Maquinaria Pesada (Excavadoras/Volquetes):** Miden en **Horómetro** ($\text{Gln/Hr}$). Límite de alerta: **60 Horas**.
                 """)
 
-                # Ordenar la presentación descendentemente
+                # Presentación descendentemente
                 df_display = df_z.sort_values(by="fecha_dt", ascending=False).copy()
                 df_display["fecha_abastecimiento"] = df_display["fecha_dt"].dt.strftime('%Y-%m-%d')
 
@@ -1353,10 +1353,10 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 )
 
 # ==========================================
-# MÓDULO 7: VALORIZACIÓN & CATÁLOGO DE INSUMOS
+# MÓDULO 6: VALORIZACIÓN & CATÁLOGO DE INSUMOS
 # ==========================================
-elif modulo == "7. Valorización & Catálogo de Insumos":
-    st.header("💰 Módulo 7: Valorización de Trabajos por Equipo & Catálogo Maestro")
+elif modulo == "6. Valorización & Catálogo de Insumos":
+    st.header("💰 Módulo 6: Valorización de Trabajos por Equipo & Catálogo Maestro")
     st.caption("Generación de matriz de valorización filtrada por equipo y rango de fechas de ingreso, con catálogo de precios de almacén.")
 
     equipos = consultar_tabla("lista_maestra")
