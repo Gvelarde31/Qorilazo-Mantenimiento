@@ -14,7 +14,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilo personalizado para ocultar menú predeterminado de Streamlit si se requiere
+# Estilo personalizado para ocultar menú predeterminado de Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -98,6 +98,21 @@ def actualizar_estado_equipo(placa, nuevo_estado):
         "Prefer": "return=minimal"
     }
     datos = {"estado_operativo": nuevo_estado}
+    try:
+        response = requests.patch(url_endpoint, headers=headers, json=datos, timeout=10)
+        return response.status_code in [200, 204]
+    except Exception:
+        return False
+
+def actualizar_estado_operador(dni, nuevo_estado):
+    url_endpoint = f"{SUPABASE_URL}/rest/v1/operadores?dni=eq.{dni}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+    }
+    datos = {"estado": nuevo_estado}
     try:
         response = requests.patch(url_endpoint, headers=headers, json=datos, timeout=10)
         return response.status_code in [200, 204]
@@ -203,7 +218,7 @@ def es_vehiculo_kilometraje(tipo_flota_str):
     tf_norm = normalizar_texto(tipo_flota_str)
     return any(k in tf_norm for k in ["CAMIONETA", "VAN", "COASTER", "BUS", "AUTO", "PICKUP"])
 
-# Menú Lateral Reorganizado
+# Menú Lateral
 modulo = st.sidebar.radio(
     "Navegación / Módulos:",
     [
@@ -1073,19 +1088,24 @@ elif modulo == "4. Programa Mantenimiento (Control Semanal)":
 # ==========================================
 elif modulo == "5. Vale de Combustible & Z-Score":
     st.header("⛽ Módulo 5: Vales de Combustible y Detección de Fugas (Z-Score)")
-    st.caption("Control estricto de consumos de combustible y detección estadística de anomalías o desviaciones.")
+    st.caption("Control estricto de consumos de combustible, padrón de operadores y detección estadística de anomalías.")
 
     equipos = consultar_tabla("lista_maestra")
     vales = consultar_tabla("vale_combustible")
+    operadores = consultar_tabla("operadores")
 
     df_equipos = pd.DataFrame(equipos) if equipos else pd.DataFrame()
     df_vales = pd.DataFrame(vales) if vales else pd.DataFrame()
+    df_operadores = pd.DataFrame(operadores) if operadores else pd.DataFrame()
 
-    tab_reg_vale, tab_auditoria_z = st.tabs([
+    tab_reg_vale, tab_auditoria_z, tab_add_operador, tab_del_operador = st.tabs([
         "📝 Registro de Vale de Combustible",
-        "📊 Auditoría de Fugas y Anomalías (Z-Score)"
+        "📊 Auditoría de Fugas y Anomalías (Z-Score)",
+        "➕ Registrar / Alta Operador",
+        "❌ Dar de Baja Operador"
     ])
 
+    # --- PESTAÑA 1: REGISTRO DE VALES DE COMBUSTIBLE ---
     with tab_reg_vale:
         st.subheader("✍️ Registro de Abastecimiento en Campo")
         
@@ -1094,13 +1114,32 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         else:
             df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             
+            # Filtrar operadores en estado ACTIVO
+            if not df_operadores.empty and "estado" in df_operadores.columns:
+                df_op_activos = df_operadores[df_operadores["estado"] == "ACTIVO"]
+            else:
+                df_op_activos = pd.DataFrame()
+
             if df_activos_comb.empty:
                 st.warning("⚠️ No hay equipos con estado OPERATIVO en la Lista Maestra.")
+            elif df_op_activos.empty:
+                st.warning("⚠️ No hay operadores registrados o activos. Ingrese a la pestaña '➕ Registrar / Alta Operador' primero.")
             else:
                 opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
+                opciones_operadores = sorted(list(df_op_activos["nombre_apellidos"].dropna().unique()))
 
-                placa_temp = st.selectbox("Seleccione Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb, key="sel_placa_val")
+                col_top1, col_top2 = st.columns(2)
+                with col_top1:
+                    placa_temp = st.selectbox("Seleccione Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb, key="sel_placa_val")
+                with col_top2:
+                    op_sel_nombre = st.selectbox("Seleccione Operador Registrado *", opciones_operadores, key="sel_operador_val")
 
+                # Obtener datos del operador seleccionado
+                info_op = df_op_activos[df_op_activos["nombre_apellidos"] == op_sel_nombre].iloc[0].to_dict()
+                dni_auto = info_op.get("dni", "")
+                cargo_auto = info_op.get("cargo", "Operador")
+
+                # Obtener última lectura de la placa
                 info_equipo_sel = df_activos_comb[df_activos_comb["placa"] == placa_temp].iloc[0].to_dict()
                 tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
                 es_km = es_vehiculo_kilometraje(tipo_flota_sel)
@@ -1115,7 +1154,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         df_vales_placa = df_vales_placa.sort_values(by="fecha_dt", ascending=True)
                         ult_lectura = float(pd.to_numeric(df_vales_placa.iloc[-1].get("horometro", 0.0), errors="coerce") or 0.0)
 
-                st.info(f"📌 **Equipo:** `{tipo_flota_sel}` | **Última lectura registrada:** `{ult_lectura:,.1f} {unidad_medida}`")
+                st.info(f"📌 **Equipo:** `{tipo_flota_sel}` | **Última Lectura:** `{ult_lectura:,.1f} {unidad_medida}` | **DNI Operador:** `{dni_auto}` ({cargo_auto})")
 
                 with st.form("form_vale_combustible", clear_on_submit=True):
                     st.markdown("##### ⛽ Datos del Despacho de Combustible")
@@ -1133,8 +1172,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                         frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
 
                     with cv3:
-                        nombre_operador = st.text_input("Nombre Operador *", placeholder="Ej: Juan Pérez").title().strip()
-                        dni_operador = st.text_input("DNI Operador *", max_chars=8).strip()
+                        st.text_input("Operador Seleccionado", value=op_sel_nombre, disabled=True)
+                        st.text_input("DNI Operador", value=dni_auto, disabled=True)
                         ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
                         detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
 
@@ -1156,8 +1195,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             st.error("❌ Corrija la lectura del equipo antes de guardar el registro.")
                         elif placa_val_sel not in opciones_placas_comb:
                             st.error("❌ La placa seleccionada no existe en la Lista Maestra de equipos.")
-                        elif not dni_operador or cantidad_abas <= 0 or not placa_cis_grifo:
-                            st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna, DNI y Cantidad > 0.")
+                        elif cantidad_abas <= 0 or not placa_cis_grifo:
+                            st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna y Cantidad > 0.")
                         else:
                             payload_vale = {
                                 "fecha_abastecimiento": str(fecha_abas),
@@ -1166,8 +1205,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                                 "cantidad_abas_campo": cantidad_abas,
                                 "tipo_combustible": tipo_combustible,
                                 "horometro": horometro,
-                                "nombre_operador": nombre_operador,
-                                "dni_operador": dni_operador,
+                                "nombre_operador": op_sel_nombre,
+                                "dni_operador": dni_auto,
                                 "ing_responsable": ing_responsable,
                                 "frente_asignado": frente_asignado,
                                 "detalle_consumo": detalle_consumo
@@ -1180,6 +1219,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
+    # --- PESTAÑA 2: AUDITORÍA DE Z-SCORE Y RATIOS ---
     with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
@@ -1308,14 +1348,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 st.divider()
 
-                # --- NOTA TÉCNICA SOBRE DETECCIÓN DE ERRORES ---
-                st.error("""
-                📌 **NOTA DE AUDITORÍA Y CONTROL DE DIGITACIÓN ADAPTATIVO:**
-                
-                - **Vehículos Ligeros (Camionetas/Buses):** Miden en **Kilómetros** ($\text{KM/Gln}$). Límite de alerta: **1,000 KM**.
-                - **Maquinaria Pesada (Excavadoras/Volquetes):** Miden en **Horómetro** ($\text{Gln/Hr}$). Límite de alerta: **60 Horas**.
-                """)
-
                 # Presentación descendentemente
                 df_display = df_z.sort_values(by="fecha_dt", ascending=False).copy()
                 df_display["fecha_abastecimiento"] = df_display["fecha_dt"].dt.strftime('%Y-%m-%d')
@@ -1351,6 +1383,72 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
+
+    # --- PESTAÑA 3: AGREGAR NUEVO OPERADOR ---
+    with tab_add_operador:
+        st.subheader("➕ Registrar Nuevo Operador / Conductor")
+        st.caption("Los operadores registrados estarán disponibles inmediatamente en la lista desplegable de vales.")
+
+        with st.form("form_alta_operador", clear_on_submit=True):
+            co1, co2, co3 = st.columns(3)
+            with co1:
+                nom_operador = st.text_input("Nombres y Apellidos Completos *", placeholder="Ej: Juan Carlos Pérez").title().strip()
+            with co2:
+                dni_op = st.text_input("DNI del Operador *", max_chars=8, placeholder="Ej: 45892011").strip()
+            with co3:
+                cargo_op = st.selectbox("Cargo / Puesto *", ["Operador de Maquinaria", "Conductor de Camioneta", "Chofer de Volquete", "Mecánico", "Supervisor de Campo", "Otro"])
+
+            st.divider()
+            guardar_op_btn = st.form_submit_button("💾 Guardar y Dar de Alta Operador", use_container_width=True)
+
+            if guardar_op_btn:
+                if not nom_operador or not dni_op or len(dni_op) != 8:
+                    st.error("❌ Ingrese Nombres completos y un DNI válido de 8 dígitos.")
+                else:
+                    nuevo_op = {
+                        "nombre_apellidos": nom_operador,
+                        "dni": dni_op,
+                        "cargo": cargo_op,
+                        "estado": "ACTIVO"
+                    }
+
+                    exito_op, res_op = insertar_o_actualizar("operadores", nuevo_op)
+                    if exito_op:
+                        st.success(f"✅ Operador `{nom_operador}` (DNI: {dni_op}) registrado con éxito.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error al guardar operador en Supabase: {res_op}")
+
+        # Mostrar tabla de operadores activos
+        st.divider()
+        st.markdown("##### 📋 Padrón de Operadores Registrados")
+        if not df_operadores.empty:
+            st.dataframe(df_operadores[["id", "nombre_apellidos", "dni", "cargo", "estado"]], use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay operadores en la base de datos.")
+
+    # --- PESTAÑA 4: DAR DE BAJA OPERADOR ---
+    with tab_del_operador:
+        st.subheader("❌ Retirar / Dar de Baja Operador")
+        st.caption("Esta acción pasará al operador a estado 'RETIRADO' para evitar que se le sigan asignando vales.")
+
+        if not df_operadores.empty and "estado" in df_operadores.columns:
+            df_op_retirar = df_operadores[df_operadores["estado"] == "ACTIVO"]
+            if not df_op_retirar.empty:
+                opciones_op_ret = [f"{r['dni']} - {r['nombre_apellidos']} ({r['cargo']})" for _, r in df_op_retirar.iterrows()]
+                op_sel_baja = st.selectbox("Seleccione el operador a dar de baja:", opciones_op_ret)
+
+                if st.button("⚠️ Confirmar Retiro de Operador", use_container_width=True):
+                    dni_target = op_sel_baja.split(" - ")[0].strip()
+                    if actualizar_estado_operador(dni_target, "RETIRADO"):
+                        st.success(f"✅ El operador con DNI `{dni_target}` ha sido pasado a estado RETIRADO.")
+                        st.rerun()
+                    else:
+                        st.error("❌ No se pudo actualizar el estado del operador en Supabase.")
+            else:
+                st.info("No hay operadores activos disponibles para retirar.")
+        else:
+            st.info("No hay registros de operadores en la base de datos.")
 
 # ==========================================
 # MÓDULO 6: VALORIZACIÓN & CATÁLOGO DE INSUMOS
