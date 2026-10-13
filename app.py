@@ -456,6 +456,28 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
         "✏️ Actualizar Permisos de Equipo"
     ])
 
+    # Función adaptada para reconocer NULL / None como N/A
+    def calcular_dias_vencimiento_adaptativo(fecha_str):
+        if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() in ["", "None", "nan"]:
+            return None, "N/A (NO APLICA)"
+        if str(fecha_str).strip().upper() in ["N/A", "NO APLICA"]:
+            return None, "N/A (NO APLICA)"
+        try:
+            fecha_venc = datetime.strptime(str(fecha_str)[:10], "%Y-%m-%d").date()
+            hoy = datetime.now().date()
+            dias = (fecha_venc - hoy).days
+            
+            if dias <= 15:
+                estado = "CRÍTICO"
+            elif 16 <= dias <= 31:
+                estado = "ALERTA"
+            else:
+                estado = "VIGENTE"
+                
+            return dias, estado
+        except Exception:
+            return None, "FORMATO INVÁLIDO"
+
     with tab_estatus_lista:
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
@@ -580,11 +602,14 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                 if not match_e.empty:
                     datos_previos = match_e.iloc[0].to_dict()
 
+            # Lógica corregida: solo es_na si el valor guardado es explícitamente "N/A", "NO APLICA" o similar
+            def es_na_estricto(val):
+                if not val or pd.isna(val):
+                    return False
+                return str(val).strip().upper() in ["N/A", "NO APLICA", "NONE", "NAN"]
+
             with st.form("form_permisos_equipo", clear_on_submit=True):
                 st.markdown(f"##### 🛡️ Permisos para el Equipo Placa: `{placa_sel_est}`")
-                
-                def es_na(val):
-                    return not val or pd.isna(val) or str(val).strip().upper() in ["N/A", "NO APLICA", "NONE", "NAN"]
 
                 fotocheck = st.selectbox("Fotocheck", ["SI", "NO"], index=0 if datos_previos.get("fotocheck") != "NO" else 1)
                 st.divider()
@@ -592,35 +617,35 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                 ce1, ce2, ce3 = st.columns(3)
                 
                 with ce1:
-                    na_soat = st.checkbox("No Aplica SOAT", value=es_na(datos_previos.get("soat")))
+                    na_soat = st.checkbox("No Aplica SOAT", value=es_na_estricto(datos_previos.get("soat")))
                     soat = st.date_input("Vencimiento SOAT", value=parse_fecha(datos_previos.get("soat")), disabled=na_soat)
                     
                     st.markdown("---")
-                    na_poliza = st.checkbox("No Aplica Póliza", value=es_na(datos_previos.get("poliza")))
+                    na_poliza = st.checkbox("No Aplica Póliza", value=es_na_estricto(datos_previos.get("poliza")))
                     poliza = st.date_input("Vencimiento Póliza Vehicular", value=parse_fecha(datos_previos.get("poliza")), disabled=na_poliza)
                     
                     st.markdown("---")
-                    na_retorqueo = st.checkbox("No Aplica Retorqueo", value=es_na(datos_previos.get("retorqueo")))
+                    na_retorqueo = st.checkbox("No Aplica Retorqueo", value=es_na_estricto(datos_previos.get("retorqueo")))
                     retorqueo = st.date_input("Vencimiento Retorqueo", value=parse_fecha(datos_previos.get("retorqueo")), disabled=na_retorqueo)
 
                 with ce2:
-                    na_citv = st.checkbox("No Aplica CITV", value=es_na(datos_previos.get("citv")))
+                    na_citv = st.checkbox("No Aplica CITV", value=es_na_estricto(datos_previos.get("citv")))
                     citv = st.date_input("Vencimiento CITV / Rev. Técnica", value=parse_fecha(datos_previos.get("citv")), disabled=na_citv)
                     
                     st.markdown("---")
-                    na_gps = st.checkbox("No Aplica GPS", value=es_na(datos_previos.get("gps")))
+                    na_gps = st.checkbox("No Aplica GPS", value=es_na_estricto(datos_previos.get("gps")))
                     gps = st.date_input("Vencimiento GPS", value=parse_fecha(datos_previos.get("gps")), disabled=na_gps)
                     
                     st.markdown("---")
-                    na_tarjeta = st.checkbox("No Aplica Tarjeta Mercancías", value=es_na(datos_previos.get("tarjeta_mercancias")))
+                    na_tarjeta = st.checkbox("No Aplica Tarjeta Mercancías", value=es_na_estricto(datos_previos.get("tarjeta_mercancias")))
                     tarjeta = st.date_input("Vencimiento Tarjeta Mercancías", value=parse_fecha(datos_previos.get("tarjeta_mercancias")), disabled=na_tarjeta)
 
                 with ce3:
-                    na_operatividad = st.checkbox("No Aplica Cert. Operatividad", value=es_na(datos_previos.get("certificado_operatividad")))
+                    na_operatividad = st.checkbox("No Aplica Cert. Operatividad", value=es_na_estricto(datos_previos.get("certificado_operatividad")))
                     operatividad = st.date_input("Certificado Operatividad", value=parse_fecha(datos_previos.get("certificado_operatividad")), disabled=na_operatividad)
                     
                     st.markdown("---")
-                    na_inspeccion = st.checkbox("No Aplica Cert. Inspección", value=es_na(datos_previos.get("certificado_inspeccion")))
+                    na_inspeccion = st.checkbox("No Aplica Cert. Inspección", value=es_na_estricto(datos_previos.get("certificado_inspeccion")))
                     inspeccion = st.date_input("Certificado Inspección", value=parse_fecha(datos_previos.get("certificado_inspeccion")), disabled=na_inspeccion)
 
                 st.divider()
