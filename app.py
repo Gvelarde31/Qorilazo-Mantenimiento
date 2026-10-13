@@ -158,9 +158,11 @@ def aplicar_busqueda_libre(df, columnas, query_texto):
                 
     return df[mask]
 
-def calcular_dias_vencimiento(fecha_str):
-    if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
-        return None, "SIN FECHA"
+def calcular_dias_vencimiento_adaptativo(fecha_str):
+    if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() in ["", "None", "nan"]:
+        return None, "N/A (NO APLICA)"
+    if str(fecha_str).strip().upper() in ["N/A", "NO APLICA"]:
+        return None, "N/A (NO APLICA)"
     try:
         fecha_venc = datetime.strptime(str(fecha_str)[:10], "%Y-%m-%d").date()
         hoy = datetime.now().date()
@@ -178,7 +180,7 @@ def calcular_dias_vencimiento(fecha_str):
         return None, "FORMATO INVÁLIDO"
 
 def parse_fecha(fecha_val):
-    if not fecha_val or pd.isna(fecha_val) or str(fecha_val).strip() == "":
+    if not fecha_val or pd.isna(fecha_val) or str(fecha_val).strip() in ["", "None", "nan", "N/A"]:
         return datetime.now().date()
     try:
         return datetime.strptime(str(fecha_val)[:10], "%Y-%m-%d").date()
@@ -454,28 +456,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
         "✏️ Actualizar Permisos de Equipo"
     ])
 
-    # Función adaptada para reconocer NULL / None como N/A
-    def calcular_dias_vencimiento_adaptativo(fecha_str):
-        if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() in ["", "None", "nan"]:
-            return None, "N/A (NO APLICA)"
-        if str(fecha_str).strip().upper() in ["N/A", "NO APLICA"]:
-            return None, "N/A (NO APLICA)"
-        try:
-            fecha_venc = datetime.strptime(str(fecha_str)[:10], "%Y-%m-%d").date()
-            hoy = datetime.now().date()
-            dias = (fecha_venc - hoy).days
-            
-            if dias <= 15:
-                estado = "CRÍTICO"
-            elif 16 <= dias <= 31:
-                estado = "ALERTA"
-            else:
-                estado = "VIGENTE"
-                
-            return dias, estado
-        except Exception:
-            return None, "FORMATO INVÁLIDO"
-
     with tab_estatus_lista:
         if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_activos = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"].copy()
@@ -669,7 +649,8 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         st.success(f"✅ Permisos actualizados para la Placa `{placa_sel_est}`.")
                         st.rerun()
                     else:
-                        st.error(f"❌ Error al guardar en Supabase: {res_e}"))
+                        st.error(f"❌ Error al guardar en Supabase: {res_e}")
+
 # ==========================================
 # MÓDULO 3: REPORTE DIARIO (HOJA RD / REGISTRO)
 # ==========================================
@@ -1153,7 +1134,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         "❌ Dar de Baja Operador"
     ])
 
-    # --- PESTAÑA 1: REGISTRO DE VALES DE COMBUSTIBLE ---
     with tab_reg_vale:
         st.subheader("✍️ Registro de Abastecimiento en Campo")
         
@@ -1162,7 +1142,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         else:
             df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             
-            # Filtrar operadores en estado ACTIVO
             if not df_operadores.empty and "estado" in df_operadores.columns:
                 df_op_activos = df_operadores[df_operadores["estado"] == "ACTIVO"]
             else:
@@ -1182,12 +1161,10 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 with col_top2:
                     op_sel_nombre = st.selectbox("Seleccione Operador Registrado *", opciones_operadores, key="sel_operador_val")
 
-                # Obtener datos del operador seleccionado
                 info_op = df_op_activos[df_op_activos["nombre_apellidos"] == op_sel_nombre].iloc[0].to_dict()
                 dni_auto = info_op.get("dni", "")
                 cargo_auto = info_op.get("cargo", "Operador")
 
-                # Obtener última lectura de la placa
                 info_equipo_sel = df_activos_comb[df_activos_comb["placa"] == placa_temp].iloc[0].to_dict()
                 tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
                 es_km = es_vehiculo_kilometraje(tipo_flota_sel)
@@ -1267,7 +1244,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                             else:
                                 st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
-    # --- PESTAÑA 2: AUDITORÍA DE Z-SCORE Y RATIOS ---
     with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
 
@@ -1305,7 +1281,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 max_f = df_vales["fecha_dt"].max().date() if pd.notna(df_vales["fecha_dt"].max()) else datetime.now().date()
                 rango_fechas = st.date_input("Rango de Fechas (Inicio - Fin):", value=(min_f, max_f))
 
-            # Aplicar filtros
             df_val_filt = df_vales.copy()
 
             if isinstance(rango_fechas, tuple) and len(rango_fechas) == 2:
@@ -1356,7 +1331,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 df_val_filt["ratio_consumo"] = df_val_filt.apply(calcular_ratio_consumo, axis=1)
 
-                # --- CÁLCULO ESTADÍSTICO DE Z-SCORE POR PLACA ---
                 stats_placa = df_val_filt.groupby("placa")["cantidad_abas_campo"].agg(["mean", "std", "count"]).reset_index()
                 stats_placa.rename(columns={"mean": "media_gal", "std": "desv_std", "count": "n_muestras"}, inplace=True)
 
@@ -1387,7 +1361,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 df_z["estado_alerta"] = df_z.apply(clasificar_alerta, axis=1)
 
-                # KPIs de Consumo
                 k1, k2, k3, k4 = st.columns(4)
                 k1.metric("Galones Totales", f"{df_z['cantidad_abas_campo'].sum():,.1f} Gal")
                 k2.metric("🟢 Abastecimientos Normales", len(df_z[df_z["estado_alerta"] == "🟢 NORMAL"]))
@@ -1396,7 +1369,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
                 st.divider()
 
-                # Presentación descendentemente
                 df_display = df_z.sort_values(by="fecha_dt", ascending=False).copy()
                 df_display["fecha_abastecimiento"] = df_display["fecha_dt"].dt.strftime('%Y-%m-%d')
 
@@ -1432,7 +1404,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     use_container_width=True
                 )
 
-    # --- PESTAÑA 3: AGREGAR NUEVO OPERADOR ---
     with tab_add_operador:
         st.subheader("➕ Registrar Nuevo Operador / Conductor")
         st.caption("Los operadores registrados estarán disponibles inmediatamente en la lista desplegable de vales.")
@@ -1467,7 +1438,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     else:
                         st.error(f"❌ Error al guardar operador en Supabase: {res_op}")
 
-        # Mostrar tabla de operadores activos
         st.divider()
         st.markdown("##### 📋 Padrón de Operadores Registrados")
         if not df_operadores.empty:
@@ -1475,7 +1445,6 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         else:
             st.info("No hay operadores en la base de datos.")
 
-    # --- PESTAÑA 4: DAR DE BAJA OPERADOR ---
     with tab_del_operador:
         st.subheader("❌ Retirar / Dar de Baja Operador")
         st.caption("Esta acción pasará al operador a estado 'RETIRADO' para evitar que se le sigan asignando vales.")
