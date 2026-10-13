@@ -25,20 +25,64 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- ENCABEZADO INSTITUCIONAL / PROGRAMA DE FORTALECIMIENTO ---
-col_logo, col_titulo = st.columns([1, 4])
+# --- SISTEMA DE AUTENTICACIÓN / LOGIN ---
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+if "usuario_actual" not in st.session_state:
+    st.session_state["usuario_actual"] = ""
+
+def verificar_password():
+    usuario_input = st.session_state.get("input_usuario", "").strip().lower()
+    password_input = st.session_state.get("input_password", "").strip()
+
+    try:
+        usuarios_validos = st.secrets["passwords"]
+        if usuario_input in usuarios_validos and usuarios_validos[usuario_input] == password_input:
+            st.session_state["autenticado"] = True
+            st.session_state["usuario_actual"] = usuario_input
+        else:
+            st.session_state["autenticado"] = False
+            st.error("❌ Usuario o contraseña incorrectos. Intente nuevamente.")
+    except Exception:
+        st.error("⚠️ Error de configuración: No se encontraron las credenciales en los Secrets de Streamlit.")
+
+# Pantalla de Inicio de Sesión si no está autenticado
+if not st.session_state["autenticado"]:
+    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+    with col_l2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        nombre_logo = "logo_empresa.png"
+        if os.path.exists(nombre_logo):
+            st.image(nombre_logo, width=180)
+        
+        st.title("🔒 Acceso Restringido - QORILAZO")
+        st.caption("🏢 **Programa de Fortalecimiento Empresarial** | Corredor Minero Apurímac - Cusco")
+        st.divider()
+
+        st.text_input("Usuario", key="input_usuario")
+        st.text_input("Contraseña", type="password", key="input_password")
+        st.button("🔑 Iniciar Sesión", on_click=verificar_password, use_container_width=True)
+
+    st.stop()  # Detiene la ejecución para no cargar ningún módulo si no está autenticado
+
+# --- ENCABEZADO INSTITUCIONAL Y LOGO (SISTEMA AUTENTICADO) ---
+col_logo, col_titulo, col_user = st.columns([1, 3.5, 1.2])
 
 nombre_logo = "Logo technoserve.png"
-
 with col_logo:
     if os.path.exists(nombre_logo):
-        st.image(nombre_logo, width=150)
-    else:
-        st.caption("🏢 *Programa de Fortalecimiento*")
+        st.image(nombre_logo, width=140)
 
 with col_titulo:
     st.title("🚜 QORILAZO - Control y Mantenimiento de Flota")
-    st.caption("🏢 **Desarrollado en el marco del Programa de Fortalecimiento Empresarial** | Corredor Minero Apurímac - Cusco")
+    st.caption("🏢 **Programa de Fortalecimiento Empresarial** | Corredor Minero Apurímac - Cusco")
+
+with col_user:
+    st.markdown(f"👤 **Usuario:** `{st.session_state['usuario_actual'].upper()}`")
+    if st.button("🚪 Cerrar Sesión", use_container_width=True):
+        st.session_state["autenticado"] = False
+        st.session_state["usuario_actual"] = ""
+        st.rerun()
 
 # Logo en la Barra Lateral
 if os.path.exists(nombre_logo):
