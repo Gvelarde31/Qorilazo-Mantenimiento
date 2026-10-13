@@ -1167,10 +1167,20 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         else:
             df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
             
-            if not df_operadores.empty and "estado" in df_operadores.columns:
-                df_op_activos = df_operadores[df_operadores["estado"] == "ACTIVO"]
-            else:
-                df_op_activos = pd.DataFrame()
+            # --- PROCESAMIENTO ROBUSTO DE OPERADORES ---
+            df_op_activos = pd.DataFrame()
+            if not df_operadores.empty:
+                df_op_temp = df_operadores.copy()
+                
+                # Normalizar columna de estado si no existe o tiene espacios
+                if "estado" not in df_op_temp.columns:
+                    df_op_temp["estado"] = "ACTIVO"
+                else:
+                    df_op_temp["estado"] = df_op_temp["estado"].astype(str).str.strip().str.upper()
+                    df_op_temp["estado"] = df_op_temp["estado"].replace(["NONE", "NAN", ""], "ACTIVO")
+
+                # Filtrar activos (incluye 'ACTIVO' y valores predeterminados)
+                df_op_activos = df_op_temp[df_op_temp["estado"].str.contains("ACTIVO", na=True)].copy()
 
             if df_activos_comb.empty:
                 st.warning("⚠️ No hay equipos con estado OPERATIVO en la Lista Maestra.")
@@ -1178,7 +1188,7 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                 st.warning("⚠️ No hay operadores registrados o activos. Ingrese a la pestaña '➕ Registrar / Alta Operador' primero.")
             else:
                 opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
-                opciones_operadores = sorted(list(df_op_activos["nombre_apellidos"].dropna().unique()))
+                opciones_operadores = sorted(list(df_op_activos["nombre_apellidos"].dropna().astype(str).unique()))
 
                 col_top1, col_top2 = st.columns(2)
                 with col_top1:
@@ -1187,8 +1197,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
                     op_sel_nombre = st.selectbox("Seleccione Operador Registrado *", opciones_operadores, key="sel_operador_val")
 
                 info_op = df_op_activos[df_op_activos["nombre_apellidos"] == op_sel_nombre].iloc[0].to_dict()
-                dni_auto = info_op.get("dni", "")
-                cargo_auto = info_op.get("cargo", "Operador")
+                dni_auto = str(info_op.get("dni", "") or "")
+                cargo_auto = str(info_op.get("cargo", "Operador") or "Operador")
 
                 info_equipo_sel = df_activos_comb[df_activos_comb["placa"] == placa_temp].iloc[0].to_dict()
                 tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
@@ -1466,7 +1476,8 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         st.divider()
         st.markdown("##### 📋 Padrón de Operadores Registrados")
         if not df_operadores.empty:
-            st.dataframe(df_operadores[["id", "nombre_apellidos", "dni", "cargo", "estado"]], use_container_width=True, hide_index=True)
+            cols_op = [c for c in ["id", "nombre_apellidos", "dni", "cargo", "estado"] if c in df_operadores.columns]
+            st.dataframe(df_operadores[cols_op], use_container_width=True, hide_index=True)
         else:
             st.info("No hay operadores en la base de datos.")
 
@@ -1474,10 +1485,18 @@ elif modulo == "5. Vale de Combustible & Z-Score":
         st.subheader("❌ Retirar / Dar de Baja Operador")
         st.caption("Esta acción pasará al operador a estado 'RETIRADO' para evitar que se le sigan asignando vales.")
 
-        if not df_operadores.empty and "estado" in df_operadores.columns:
-            df_op_retirar = df_operadores[df_operadores["estado"] == "ACTIVO"]
+        if not df_operadores.empty:
+            df_op_temp = df_operadores.copy()
+            if "estado" not in df_op_temp.columns:
+                df_op_temp["estado"] = "ACTIVO"
+            else:
+                df_op_temp["estado"] = df_op_temp["estado"].astype(str).str.strip().str.upper()
+                df_op_temp["estado"] = df_op_temp["estado"].replace(["NONE", "NAN", ""], "ACTIVO")
+
+            df_op_retirar = df_op_temp[df_op_temp["estado"].str.contains("ACTIVO", na=True)]
+            
             if not df_op_retirar.empty:
-                opciones_op_ret = [f"{r['dni']} - {r['nombre_apellidos']} ({r['cargo']})" for _, r in df_op_retirar.iterrows()]
+                opciones_op_ret = [f"{r['dni']} - {r['nombre_apellidos']} ({r.get('cargo', 'Operador')})" for _, r in df_op_retirar.iterrows()]
                 op_sel_baja = st.selectbox("Seleccione el operador a dar de baja:", opciones_op_ret)
 
                 if st.button("⚠️ Confirmar Retiro de Operador", use_container_width=True):
