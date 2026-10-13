@@ -454,10 +454,10 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
         "✏️ Actualizar Permisos de Equipo"
     ])
 
-    # Función adaptada para reconocer N/A
+    # Función adaptada para reconocer NULL / None como N/A
     def calcular_dias_vencimiento_adaptativo(fecha_str):
-        if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() == "":
-            return None, "SIN FECHA"
+        if not fecha_str or pd.isna(fecha_str) or str(fecha_str).strip() in ["", "None", "nan"]:
+            return None, "N/A (NO APLICA)"
         if str(fecha_str).strip().upper() in ["N/A", "NO APLICA"]:
             return None, "N/A (NO APLICA)"
         try:
@@ -509,7 +509,6 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     c_crit = sum(1 for r in calc_res if r[1] == "CRÍTICO")
                     c_aler = sum(1 for r in calc_res if r[1] == "ALERTA")
                     c_vige = sum(1 for r in calc_res if r[1] == "VIGENTE")
-                    c_sinf = sum(1 for r in calc_res if r[1] == "SIN FECHA")
                     c_na = sum(1 for r in calc_res if r[1] == "N/A (NO APLICA)")
                     
                     resumen_documentos.append({
@@ -517,8 +516,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         "🔴 CRÍTICO (≤15d)": c_crit,
                         "🟡 ALERTA (16-31d)": c_aler,
                         "🟢 VIGENTE (≥32d)": c_vige,
-                        "⚪ SIN FECHA": c_sinf,
-                        "⚪ NO APLICA": c_na
+                        "⚪ N/A (NO APLICA)": c_na
                     })
 
             st.subheader("🚨 Resumen Semafórico por Documento y Permiso")
@@ -552,7 +550,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
             with c_e2:
                 estado_sel = st.selectbox(
                     "2. Filtrar Estado:",
-                    options=["TODOS", "CRÍTICO", "ALERTA", "VIGENTE", "SIN FECHA", "N/A (NO APLICA)"]
+                    options=["TODOS", "CRÍTICO", "ALERTA", "VIGENTE", "N/A (NO APLICA)"]
                 )
             with c_e3:
                 txt_est = st.text_input("🔎 3. Búsqueda Libre (Placa, Código, Fotocheck 'SI' / 'NO'):").strip()
@@ -605,9 +603,8 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
             with st.form("form_permisos_equipo", clear_on_submit=True):
                 st.markdown(f"##### 🛡️ Permisos para el Equipo Placa: `{placa_sel_est}`")
                 
-                # Función para determinar si el valor previo era N/A
                 def es_na(val):
-                    return str(val).strip().upper() in ["N/A", "NO APLICA"]
+                    return not val or pd.isna(val) or str(val).strip().upper() in ["N/A", "NO APLICA", "NONE", "NAN"]
 
                 fotocheck = st.selectbox("Fotocheck", ["SI", "NO"], index=0 if datos_previos.get("fotocheck") != "NO" else 1)
                 st.divider()
@@ -656,14 +653,14 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                     reg_estatus = {
                         "placa": placa_sel_est,
                         "fotocheck": fotocheck,
-                        "soat": "N/A" if na_soat else str(soat),
-                        "poliza": "N/A" if na_poliza else str(poliza),
-                        "retorqueo": "N/A" if na_retorqueo else str(retorqueo),
-                        "citv": "N/A" if na_citv else str(citv),
-                        "gps": "N/A" if na_gps else str(gps),
-                        "tarjeta_mercancias": "N/A" if na_tarjeta else str(tarjeta),
-                        "certificado_operatividad": "N/A" if na_operatividad else str(operatividad),
-                        "certificado_inspeccion": "N/A" if na_inspeccion else str(inspeccion),
+                        "soat": None if na_soat else str(soat),
+                        "poliza": None if na_poliza else str(poliza),
+                        "retorqueo": None if na_retorqueo else str(retorqueo),
+                        "citv": None if na_citv else str(citv),
+                        "gps": None if na_gps else str(gps),
+                        "tarjeta_mercancias": None if na_tarjeta else str(tarjeta),
+                        "certificado_operatividad": None if na_operatividad else str(operatividad),
+                        "certificado_inspeccion": None if na_inspeccion else str(inspeccion),
                         "comentario": comentario
                     }
 
@@ -672,7 +669,7 @@ elif modulo == "2. Estatus Equipo (Acreditaciones)":
                         st.success(f"✅ Permisos actualizados para la Placa `{placa_sel_est}`.")
                         st.rerun()
                     else:
-                        st.error(f"❌ Error al guardar en Supabase: {res_e}")
+                        st.error(f"❌ Error al guardar en Supabase: {res_e}"))
 # ==========================================
 # MÓDULO 3: REPORTE DIARIO (HOJA RD / REGISTRO)
 # ==========================================
