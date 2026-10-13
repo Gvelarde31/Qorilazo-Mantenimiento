@@ -6,24 +6,45 @@ from datetime import datetime, timedelta, time
 import io
 import unicodedata
 import re
+import os
 
-# Configuración de la página
+# Configuración de la página e ícono de la pestaña
 st.set_page_config(
-    page_title="Qorilazo - Sistema de Mantenimiento",
+    page_title="Qorilazo - Control de Flota",
     page_icon="🚜",
     layout="wide"
 )
 
-# Estilo personalizado para ocultar menú predeterminado de Streamlit
+# --- ESTILOS CSS PERSONALIZADOS: Ocultar menú Streamlit ("gatito"/GitHub) y cabecera ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
     footer {visibility: hidden;}
+    .stApp > header {background-color: transparent;}
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🚜 QORILAZO - Control y Mantenimiento de Flota")
-st.caption("🏢 Programa de Fortalecimiento Empresarial | Corredor Minero Apurímac - Cusco")
+# --- ENCABEZADO INSTITUCIONAL / PROGRAMA DE FORTALECIMIENTO ---
+col_logo, col_titulo = st.columns([1, 4])
+
+nombre_logo = "Logo technoserve.png"
+
+with col_logo:
+    if os.path.exists(nombre_logo):
+        st.image(nombre_logo, width=150)
+    else:
+        st.caption("🏢 *Programa de Fortalecimiento*")
+
+with col_titulo:
+    st.title("🚜 QORILAZO - Control y Mantenimiento de Flota")
+    st.caption("🏢 **Desarrollado en el marco del Programa de Fortalecimiento Empresarial** | Corredor Minero Apurímac - Cusco")
+
+# Logo en la Barra Lateral
+if os.path.exists(nombre_logo):
+    st.sidebar.image(nombre_logo, use_column_width=True)
+
+st.divider()
 
 # Lectura segura de Secrets de Supabase
 try:
