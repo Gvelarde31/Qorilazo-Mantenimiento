@@ -1162,122 +1162,127 @@ elif modulo == "5. Vale de Combustible & Z-Score":
     with tab_reg_vale:
         st.subheader("✍️ Registro de Abastecimiento en Campo")
         
-        if df_equipos.empty:
-            st.warning("⚠️ Debe registrar equipos en la Lista Maestra antes de registrar vales de combustible.")
-        else:
+        # 1. Obtener equipos activos de la lista maestra
+        df_activos_comb = pd.DataFrame()
+        if not df_equipos.empty and "estado_operativo" in df_equipos.columns:
             df_activos_comb = df_equipos[df_equipos["estado_operativo"] == "OPERATIVO"]
-            
-            # --- PROCESAMIENTO ROBUSTO DE OPERADORES ---
-            df_op_activos = pd.DataFrame()
-            if not df_operadores.empty:
-                df_op_temp = df_operadores.copy()
-                
-                # Normalizar columna de estado si no existe o tiene espacios
-                if "estado" not in df_op_temp.columns:
-                    df_op_temp["estado"] = "ACTIVO"
-                else:
-                    df_op_temp["estado"] = df_op_temp["estado"].astype(str).str.strip().str.upper()
-                    df_op_temp["estado"] = df_op_temp["estado"].replace(["NONE", "NAN", ""], "ACTIVO")
+        elif not df_equipos.empty:
+            df_activos_comb = df_equipos.copy()
 
-                # Filtrar activos (incluye 'ACTIVO' y valores predeterminados)
-                df_op_activos = df_op_temp[df_op_temp["estado"].str.contains("ACTIVO", na=True)].copy()
-
-            if df_activos_comb.empty:
-                st.warning("⚠️ No hay equipos con estado OPERATIVO en la Lista Maestra.")
-            elif df_op_activos.empty:
-                st.warning("⚠️ No hay operadores registrados o activos. Ingrese a la pestaña '➕ Registrar / Alta Operador' primero.")
+        # 2. Obtener operadores activos (con respaldo total)
+        df_op_activos = pd.DataFrame()
+        if not df_operadores.empty:
+            df_op_temp = df_operadores.copy()
+            if "estado" in df_op_temp.columns:
+                df_op_filt = df_op_temp[df_op_temp["estado"].astype(str).str.upper().str.contains("ACTIVO", na=False)]
+                df_op_activos = df_op_filt if not df_op_filt.empty else df_op_temp
             else:
-                opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().unique()))
-                opciones_operadores = sorted(list(df_op_activos["nombre_apellidos"].dropna().astype(str).unique()))
+                df_op_activos = df_op_temp
 
-                col_top1, col_top2 = st.columns(2)
-                with col_top1:
-                    placa_temp = st.selectbox("Seleccione Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb, key="sel_placa_val")
-                with col_top2:
-                    op_sel_nombre = st.selectbox("Seleccione Operador Registrado *", opciones_operadores, key="sel_operador_val")
+        # Validaciones independientes
+        if df_activos_comb.empty:
+            st.warning("⚠️ No se encontraron equipos activos en la Lista Maestra. Registre o active equipos en el Módulo 1.")
+        elif df_operadores.empty:
+            st.warning("⚠️ No se pudieron recuperar los operadores de Supabase. Verifique que la tabla 'operadores' no tenga RLS activo o agregue uno en la pestaña '➕ Registrar / Alta Operador'.")
+        else:
+            opciones_placas_comb = sorted(list(df_activos_comb["placa"].dropna().astype(str).unique()))
+            
+            # Nombre de la columna de operadores
+            col_nom_op = "nombre_apellidos" if "nombre_apellidos" in df_op_activos.columns else df_op_activos.columns[0]
+            opciones_operadores = sorted(list(df_op_activos[col_nom_op].dropna().astype(str).unique()))
 
-                info_op = df_op_activos[df_op_activos["nombre_apellidos"] == op_sel_nombre].iloc[0].to_dict()
-                dni_auto = str(info_op.get("dni", "") or "")
-                cargo_auto = str(info_op.get("cargo", "Operador") or "Operador")
+            col_top1, col_top2 = st.columns(2)
+            with col_top1:
+                placa_temp = st.selectbox("Seleccione Placa / Código Equipo (Lista Maestra) *", opciones_placas_comb, key="sel_placa_val")
+            with col_top2:
+                op_sel_nombre = st.selectbox("Seleccione Operador Registrado *", opciones_operadores, key="sel_operador_val")
 
-                info_equipo_sel = df_activos_comb[df_activos_comb["placa"] == placa_temp].iloc[0].to_dict()
-                tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
-                es_km = es_vehiculo_kilometraje(tipo_flota_sel)
-                unidad_medida = "KM" if es_km else "Hrs"
-                limite_max_delta = 1000.0 if es_km else 50.0
+            # Datos del operador seleccionado
+            match_op = df_op_activos[df_op_activos[col_nom_op] == op_sel_nombre]
+            info_op = match_op.iloc[0].to_dict() if not match_op.empty else {}
+            dni_auto = str(info_op.get("dni", "") or "")
+            cargo_auto = str(info_op.get("cargo", "Operador") or "Operador")
 
-                ult_lectura = 0.0
-                if not df_vales.empty and "placa" in df_vales.columns:
-                    df_vales_placa = df_vales[df_vales["placa"] == placa_temp].copy()
-                    if not df_vales_placa.empty:
-                        df_vales_placa["fecha_dt"] = pd.to_datetime(df_vales_placa["fecha_abastecimiento"], errors="coerce")
-                        df_vales_placa = df_vales_placa.sort_values(by="fecha_dt", ascending=True)
-                        ult_lectura = float(pd.to_numeric(df_vales_placa.iloc[-1].get("horometro", 0.0), errors="coerce") or 0.0)
+            # Lectura previa
+            match_eq = df_activos_comb[df_activos_comb["placa"] == placa_temp]
+            info_equipo_sel = match_eq.iloc[0].to_dict() if not match_eq.empty else {}
+            tipo_flota_sel = info_equipo_sel.get("tipo_flota", "")
+            es_km = es_vehiculo_kilometraje(tipo_flota_sel)
+            unidad_medida = "KM" if es_km else "Hrs"
+            limite_max_delta = 1000.0 if es_km else 50.0
 
-                st.info(f"📌 **Equipo:** `{tipo_flota_sel}` | **Última Lectura:** `{ult_lectura:,.1f} {unidad_medida}` | **DNI Operador:** `{dni_auto}` ({cargo_auto})")
+            ult_lectura = 0.0
+            if not df_vales.empty and "placa" in df_vales.columns:
+                df_vales_placa = df_vales[df_vales["placa"] == placa_temp].copy()
+                if not df_vales_placa.empty:
+                    df_vales_placa["fecha_dt"] = pd.to_datetime(df_vales_placa["fecha_abastecimiento"], errors="coerce")
+                    df_vales_placa = df_vales_placa.sort_values(by="fecha_dt", ascending=True)
+                    ult_lectura = float(pd.to_numeric(df_vales_placa.iloc[-1].get("horometro", 0.0), errors="coerce") or 0.0)
 
-                with st.form("form_vale_combustible", clear_on_submit=True):
-                    st.markdown("##### ⛽ Datos del Despacho de Combustible")
-                    cv1, cv2, cv3 = st.columns(3)
-                    
-                    with cv1:
-                        fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
-                        placa_val_sel = placa_temp
-                        placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
-                        cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
+            st.info(f"📌 **Equipo:** `{tipo_flota_sel}` | **Última Lectura:** `{ult_lectura:,.1f} {unidad_medida}` | **DNI Operador:** `{dni_auto}` ({cargo_auto})")
 
-                    with cv2:
-                        tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
-                        horometro = st.number_input(f"Lectura Actual ({unidad_medida}) *", min_value=0.0, step=0.1, value=float(ult_lectura))
-                        frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
+            with st.form("form_vale_combustible", clear_on_submit=True):
+                st.markdown("##### ⛽ Datos del Despacho de Combustible")
+                cv1, cv2, cv3 = st.columns(3)
+                
+                with cv1:
+                    fecha_abas = st.date_input("Fecha de Abastecimiento *", datetime.now().date())
+                    placa_val_sel = placa_temp
+                    placa_cis_grifo = st.text_input("Placa Cisterna / Grifo *", placeholder="Ej: CIS-01 o GRIFO PRINCIPAL").upper().strip()
+                    cantidad_abas = st.number_input("Cantidad Abastecida (Galones) *", min_value=0.0, step=0.1)
 
-                    with cv3:
-                        st.text_input("Operador Seleccionado", value=op_sel_nombre, disabled=True)
-                        st.text_input("DNI Operador", value=dni_auto, disabled=True)
-                        ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
-                        detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
+                with cv2:
+                    tipo_combustible = st.selectbox("Tipo Combustible *", ["DIESEL B5 S50", "GASOHOL REGULAR", "GASOHOL PREMIUM"])
+                    horometro = st.number_input(f"Lectura Actual ({unidad_medida}) *", min_value=0.0, step=0.1, value=float(ult_lectura))
+                    frente_asignado = st.text_input("Frente Asignado *", value="Frente Principal")
 
-                    delta_ingresado = horometro - ult_lectura
-                    error_digitacion = False
+                with cv3:
+                    st.text_input("Operador Seleccionado", value=op_sel_nombre, disabled=True)
+                    st.text_input("DNI Operador", value=dni_auto, disabled=True)
+                    ing_responsable = st.text_input("Ing. Responsable *", placeholder="Ej: Ing. Carlos Gómez").title().strip()
+                    detalle_consumo = st.text_area("Detalle / Observaciones", placeholder="Ej: Tanque lleno al final del turno nocturno", height=68)
 
-                    if ult_lectura > 0:
-                        if horometro < ult_lectura:
-                            st.error(f"🚫 **Error de Lectura:** La lectura ingresada ({horometro} {unidad_medida}) no puede ser menor a la anterior ({ult_lectura} {unidad_medida}).")
-                            error_digitacion = True
-                        elif delta_ingresado > limite_max_delta:
-                            st.warning(f"⚠️ **Alerta de Digitación:** El incremento es de {delta_ingresado:,.1f} {unidad_medida} (Supera el límite de {limite_max_delta} {unidad_medida}). Verifique si digitó un cero extra.")
+                delta_ingresado = horometro - ult_lectura
+                error_digitacion = False
 
-                    st.divider()
-                    guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
+                if ult_lectura > 0:
+                    if horometro < ult_lectura:
+                        st.error(f"🚫 **Error de Lectura:** La lectura ingresada ({horometro} {unidad_medida}) no puede ser menor a la anterior ({ult_lectura} {unidad_medida}).")
+                        error_digitacion = True
+                    elif delta_ingresado > limite_max_delta:
+                        st.warning(f"⚠️ **Alerta de Digitación:** El incremento es de {delta_ingresado:,.1f} {unidad_medida} (Supera el límite de {limite_max_delta} {unidad_medida}). Verifique si digitó un cero extra.")
 
-                    if guardar_vale_btn:
-                        if error_digitacion:
-                            st.error("❌ Corrija la lectura del equipo antes de guardar el registro.")
-                        elif placa_val_sel not in opciones_placas_comb:
-                            st.error("❌ La placa seleccionada no existe en la Lista Maestra de equipos.")
-                        elif cantidad_abas <= 0 or not placa_cis_grifo:
-                            st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna y Cantidad > 0.")
+                st.divider()
+                guardar_vale_btn = st.form_submit_button("💾 Guardar Vale en Supabase", use_container_width=True)
+
+                if guardar_vale_btn:
+                    if error_digitacion:
+                        st.error("❌ Corrija la lectura del equipo antes de guardar el registro.")
+                    elif placa_val_sel not in opciones_placas_comb:
+                        st.error("❌ La placa seleccionada no existe en la Lista Maestra de equipos.")
+                    elif cantidad_abas <= 0 or not placa_cis_grifo:
+                        st.error("❌ Complete todos los campos obligatorios (*): Placa, Cisterna y Cantidad > 0.")
+                    else:
+                        payload_vale = {
+                            "fecha_abastecimiento": str(fecha_abas),
+                            "placa": placa_val_sel,
+                            "placa_cis_grifo": placa_cis_grifo,
+                            "cantidad_abas_campo": cantidad_abas,
+                            "tipo_combustible": tipo_combustible,
+                            "horometro": horometro,
+                            "nombre_operador": op_sel_nombre,
+                            "dni_operador": dni_auto,
+                            "ing_responsable": ing_responsable,
+                            "frente_asignado": frente_asignado,
+                            "detalle_consumo": detalle_consumo
+                        }
+
+                        exito_v, res_v = insertar_registro("vale_combustible", payload_vale)
+                        if exito_v:
+                            st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
+                            st.rerun()
                         else:
-                            payload_vale = {
-                                "fecha_abastecimiento": str(fecha_abas),
-                                "placa": placa_val_sel,
-                                "placa_cis_grifo": placa_cis_grifo,
-                                "cantidad_abas_campo": cantidad_abas,
-                                "tipo_combustible": tipo_combustible,
-                                "horometro": horometro,
-                                "nombre_operador": op_sel_nombre,
-                                "dni_operador": dni_auto,
-                                "ing_responsable": ing_responsable,
-                                "frente_asignado": frente_asignado,
-                                "detalle_consumo": detalle_consumo
-                            }
-
-                            exito_v, res_v = insertar_registro("vale_combustible", payload_vale)
-                            if exito_v:
-                                st.success(f"✅ Vale registrado correctamente para la unidad `{placa_val_sel}`.")
-                                st.rerun()
-                            else:
-                                st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
+                            st.error(f"❌ Error al guardar vale en Supabase: {res_v}")
 
     with tab_auditoria_z:
         st.subheader("🔍 Auditoría de Consumos, Ratios y Detección de Fugas (Z-Score)")
@@ -1487,27 +1492,18 @@ elif modulo == "5. Vale de Combustible & Z-Score":
 
         if not df_operadores.empty:
             df_op_temp = df_operadores.copy()
-            if "estado" not in df_op_temp.columns:
-                df_op_temp["estado"] = "ACTIVO"
-            else:
-                df_op_temp["estado"] = df_op_temp["estado"].astype(str).str.strip().str.upper()
-                df_op_temp["estado"] = df_op_temp["estado"].replace(["NONE", "NAN", ""], "ACTIVO")
-
-            df_op_retirar = df_op_temp[df_op_temp["estado"].str.contains("ACTIVO", na=True)]
+            col_nom = "nombre_apellidos" if "nombre_apellidos" in df_op_temp.columns else df_op_temp.columns[0]
             
-            if not df_op_retirar.empty:
-                opciones_op_ret = [f"{r['dni']} - {r['nombre_apellidos']} ({r.get('cargo', 'Operador')})" for _, r in df_op_retirar.iterrows()]
-                op_sel_baja = st.selectbox("Seleccione el operador a dar de baja:", opciones_op_ret)
+            opciones_op_ret = [f"{r.get('dni', '')} - {r[col_nom]} ({r.get('cargo', 'Operador')})" for _, r in df_op_temp.iterrows()]
+            op_sel_baja = st.selectbox("Seleccione el operador a dar de baja:", opciones_op_ret)
 
-                if st.button("⚠️ Confirmar Retiro de Operador", use_container_width=True):
-                    dni_target = op_sel_baja.split(" - ")[0].strip()
-                    if actualizar_estado_operador(dni_target, "RETIRADO"):
-                        st.success(f"✅ El operador con DNI `{dni_target}` ha sido pasado a estado RETIRADO.")
-                        st.rerun()
-                    else:
-                        st.error("❌ No se pudo actualizar el estado del operador en Supabase.")
-            else:
-                st.info("No hay operadores activos disponibles para retirar.")
+            if st.button("⚠️ Confirmar Retiro de Operador", use_container_width=True):
+                dni_target = op_sel_baja.split(" - ")[0].strip()
+                if actualizar_estado_operador(dni_target, "RETIRADO"):
+                    st.success(f"✅ El operador con DNI `{dni_target}` ha sido pasado a estado RETIRADO.")
+                    st.rerun()
+                else:
+                    st.error("❌ No se pudo actualizar el estado del operador en Supabase.")
         else:
             st.info("No hay registros de operadores en la base de datos.")
 
