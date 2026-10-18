@@ -21,11 +21,13 @@ def obtener_datos_supabase(tabla):
         res = requests.get(url, headers=HEADERS_SUPABASE, timeout=10)
         if res.status_code == 200:
             return res.json()
+        else:
+            print(f"Error consultando {tabla}: Status {res.status_code} - {res.text}")
     except Exception as e:
-        print(f"Error consultando {tabla}: {e}")
+        print(f"Excepción consultando {tabla}: {e}")
     return []
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101808)
+# 1. Endpoint OpenRosa FormList (Versión 2026101809)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -35,8 +37,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101808</version>
-        <hash>md5:qorilazo2026v08</hash>
+        <version>2026101809</version>
+        <hash>md5:qorilazo2026v09</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -48,19 +50,21 @@ async def download_form():
     operadores = obtener_datos_supabase("operadores")
     lista_maestra = obtener_datos_supabase("lista_maestra")
 
+    # Mapeo de Operadores
     items_operadores = ""
     for op in operadores:
         nombre = (op.get("nombre_apellidos") or op.get("nombre") or op.get("operador") or op.get("apellidos_nombres") or "").strip()
         if nombre:
             items_operadores += f"<item><label>{nombre}</label><value>{nombre}</value></item>\n"
 
+    # Mapeo de Placas (Apuntando exactamente a la columna 'placa' que se ve en la captura)
     items_placas = ""
     for eq in lista_maestra:
-        placa = (eq.get("codigo_placa") or eq.get("placa") or eq.get("codigo") or eq.get("unidad") or "").strip()
+        placa = (eq.get("placa") or eq.get("codigo_placa") or eq.get("codigo_interno") or "").strip()
         if placa:
             items_placas += f"<item><label>{placa}</label><value>{placa}</value></item>\n"
 
-    # Garantizar que NUNCA queden vacías las opciones para evitar el error 'has no choices'
+    # Respaldos de seguridad
     if not items_operadores:
         items_operadores = "<item><label>OPERADOR GENERAL</label><value>OPERADOR GENERAL</value></item>\n"
     if not items_placas:
