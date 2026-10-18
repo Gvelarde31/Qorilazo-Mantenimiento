@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" 
+        xmlns:h="http://www.w3.org/1999/xhtml" 
+        xmlns:jr="http://openrosa.org/javarosa" 
+        xmlns:odk="http://opendatakit.org/xforms">
+  <h:head>
+    <h:title>Check List Cambio de Guardia - Qorilazo</h:title>
+    <model>
+      <instance>
+        <data id="checklist_guardia_qorilazo_v1">
+          <!-- Datos Generales -->
+          <fecha_inspeccion/>
+          <guardia/>
+          <codigo_placa/>
+          <codigo_interno/>
+          <marca/>
+          <equipo/>
+          <km_hr/>
+          <adblue/>
+          <nombre_operador/>
+          <dni_operador/>
+
+          <!-- Documentación -->
+          <doc_fotocheck>OK</doc_fotocheck>
+          <doc_tarjeta_propiedad>OK</doc_tarjeta_propiedad>
+          <doc_soat>OK</doc_soat>
+          <doc_inspeccion_tecnica>OK</doc_inspeccion_tecnica>
+          <doc_tarjeta_circulacion>OK</doc_tarjeta_circulacion>
+          <doc_poliza_seguro>OK</doc_poliza_seguro>
+          <doc_certificado_gps>OK</doc_certificado_gps>
+          <doc_certificado_operatividad>OK</doc_certificado_operatividad>
+          <doc_inspeccion_semestral>OK</doc_inspeccion_semestral>
+
+          <!-- Cabina de Operación -->
+          <cabina_asiento>BUENO</cabina_asiento>
+          <cabina_correa>BUENO</cabina_correa>
+          <cabina_luces>BUENO</cabina_luces>
+          <cabina_espejo>BUENO</cabina_espejo>
+          <cabina_retrovisores>BUENO</cabina_retrovisores>
+          <cabina_parabrisas>BUENO</cabina_parabrisas>
+          <cabina_vidrios>BUENO</cabina_vidrios>
+          <cabina_tapiz>BUENO</cabina_tapiz>
+          <cabina_chapas>BUENO</cabina_chapas>
+
+          <!-- Compartimiento de Motor -->
+          <motor_tapa_aceite>BUENO</motor_tapa_aceite>
+          <motor_medidor_aceite>BUENO</motor_medidor_aceite>
+          <motor_tapa_radiador>BUENO</motor_tapa_radiador>
+          <motor_tapa_hidraulico>BUENO</motor_tapa_hidraulico>
+          <motor_reservorio_limpia>BUENO</motor_reservorio_limpia>
+
+          <!-- Elementos de Seguridad -->
+          <seg_conos>BUENO</seg_conos>
+          <seg_triangulos>BUENO</seg_triangulos>
+          <seg_tacos>BUENO</seg_tacos>
+          <seg_extintor>BUENO</seg_extintor>
+          <seg_kit_antiderrame>BUENO</seg_kit_antiderrame>
+          <seg_botiquin>BUENO</seg_botiquin>
+
+          <!-- Herramientas de Equipo -->
+          <herr_cable_remolque>BUENO</herr_cable_remolque>
+          <herr_cable_bateria>BUENO</herr_cable_bateria>
+          <herr_gata>BUENO</herr_gata>
+          <herr_llave_ruedas>BUENO</herr_llave_ruedas>
+          <herr_manguera_aire>BUENO</herr_manguera_aire>
+          <herr_medidor_aire>BUENO</herr_medidor_aire>
+          <herr_pala_pico>BUENO</herr_pala_pico>
+          <herr_medidor_cocadas>BUENO</herr_medidor_cocadas>
+          <herr_llaves_mixtas>BUENO</herr_llaves_mixtas>
+          <herr_alicate>BUENO</herr_alicate>
+          <herr_destornillador>BUENO</herr_destornillador>
+          <herr_linterna>BUENO</herr_linterna>
+          <herr_martillo_goma>BUENO</herr_martillo_goma>
+
+          <!-- Neumáticos (mm y estado) -->
+          <pos_1_mm/>
+          <pos_1_est>BUENO</pos_1_est>
+          <pos_2_mm/>
+          <pos_2_est>BUENO</pos_2_est>
+          <pos_3_mm/>
+          <pos_3_est>BUENO</pos_3_est>
+          <pos_4_mm/>
+          <pos_4_est>BUENO</pos_4_est>
+          <pos_repuesto_mm/>
+          <pos_repuesto_est>BUENO</pos_repuesto_est>
+
+          <!-- Fotos Requeridas -->
+          <foto_combustible/>
+          <foto_cabina/>
+          <foto_hallazgo_1/>
+          <foto_hallazgo_2/>
+
+          <!-- Observaciones -->
+          <observaciones_estado_equipo/>
+          <observaciones_adicionales/>
+
+          <!-- Firmas -->
+          <firma_operador/>
+          <firma_supervisor/>
+        </data>
+      </instance>
+
+      <!-- Bindings y Validaciones -->
+      <bind nodeset="/data/fecha_inspeccion" type="date" jr:preload="date" jr:preloadParams="today"/>
+      <bind nodeset="/data/guardia" type="string" required="true()"/>
+      <bind nodeset="/data/codigo_placa" type="string" required="true()"/>
+      <bind nodeset="/data/km_hr" type="decimal" required="true()"/>
+      <bind nodeset="/data/nombre_operador" type="string" required="true()"/>
+      
+      <!-- Fotos obligatorio/opcional -->
+      <bind nodeset="/data/foto_combustible" type="binary" required="true()"/>
+      <bind nodeset="/data/foto_cabina" type="binary"/>
+      <bind nodeset="/data/foto_hallazgo_1" type="binary"/>
+      <bind nodeset="/data/foto_hallazgo_2" type="binary"/>
+
+      <!-- Firmas obligatorio/opcional -->
+      <bind nodeset="/data/firma_operador" type="binary" required="true()"/>
+      <bind nodeset="/data/firma_supervisor" type="binary"/>
+    </model>
+  </h:head>
+
+  <h:body>
+    <group appearance="field-list">
+      <label>📋 1. DATOS GENERALES DE INSPECCIÓN</label>
+      <select1 ref="/data/guardia" appearance="horizontal">
+        <label>Guardia / Turno:</label>
+        <item><label>ENTRANTE</label><value>ENTRANTE</value></item>
+        <item><label>SALIENTE</label><value>SALIENTE</value></item>
+      </select1>
+      <input ref="/data/codigo_placa">
+        <label>Código / Placa del Equipo:</label>
+      </input>
+      <input ref="/data/km_hr">
+        <label>Lectura Actual (KM / HR):</label>
+      </input>
+      <input ref="/data/nombre_operador">
+        <label>Nombre Completo del Operador:</label>
+      </input>
+      <input ref="/data/dni_operador">
+        <label>DNI del Operador:</label>
+      </input>
+    </group>
+
+    <group appearance="field-list">
+      <label>📸 2. EVIDENCIAS FOTOGRÁFICAS</label>
+      <upload ref="/data/foto_combustible" mediatype="image/*">
+        <label>📷 Foto Nivel de Combustible / Tablero (Obligatorio):</label>
+      </upload>
+      <upload ref="/data/foto_cabina" mediatype="image/*">
+        <label>📷 Foto de la Cabina de Operación (Opcional):</label>
+      </upload>
+      <upload ref="/data/foto_hallazgo_1" mediatype="image/*">
+        <label>📷 Foto Evidencia / Hallazgo 1 (Opcional):</label>
+      </upload>
+      <upload ref="/data/foto_hallazgo_2" mediatype="image/*">
+        <label>📷 Foto Evidencia / Hallazgo 2 (Opcional):</label>
+      </upload>
+    </group>
+
+    <group appearance="field-list">
+      <label>✍️ 3. FIRMAS DE CONFORMIDAD</label>
+      <upload ref="/data/firma_operador" mediatype="image/*" appearance="draw">
+        <label>✍️ Firma del Operador (Obligatoria):</label>
+      </upload>
+      <upload ref="/data/firma_supervisor" mediatype="image/*" appearance="draw">
+        <label>✍️ Firma del Supervisor Operaciones (Opcional):</label>
+      </upload>
+    </group>
+  </h:body>
+</h:html>
