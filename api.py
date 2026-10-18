@@ -19,15 +19,18 @@ def obtener_datos_supabase(tabla):
     try:
         url = f"{SUPABASE_URL}/rest/v1/{tabla}?select=*"
         res = requests.get(url, headers=HEADERS_SUPABASE, timeout=10)
+        print(f"DEBUG Supabase {tabla} - Status Code: {res.status_code}")
         if res.status_code == 200:
-            return res.json()
+            datos = res.json()
+            print(f"DEBUG Supabase {tabla} - Cantidad registros: {len(datos)}")
+            return datos
         else:
-            print(f"Error consultando {tabla}: Status {res.status_code} - {res.text}")
+            print(f"ERROR Supabase {tabla}: {res.status_code} - {res.text}")
     except Exception as e:
-        print(f"Excepción consultando {tabla}: {e}")
+        print(f"EXCEPCION Supabase {tabla}: {e}")
     return []
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101809)
+# 1. Endpoint OpenRosa FormList (Versión 2026101810)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -37,8 +40,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101809</version>
-        <hash>md5:qorilazo2026v09</hash>
+        <version>2026101810</version>
+        <hash>md5:qorilazo2026v10</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -50,21 +53,21 @@ async def download_form():
     operadores = obtener_datos_supabase("operadores")
     lista_maestra = obtener_datos_supabase("lista_maestra")
 
-    # Mapeo de Operadores
+    # Mapeo de Operadores (buscando en la columna 'nombre_apellidos')
     items_operadores = ""
     for op in operadores:
-        nombre = (op.get("nombre_apellidos") or op.get("nombre") or op.get("operador") or op.get("apellidos_nombres") or "").strip()
+        nombre = (op.get("nombre_apellidos") or op.get("nombre") or op.get("operador") or "").strip()
         if nombre:
             items_operadores += f"<item><label>{nombre}</label><value>{nombre}</value></item>\n"
 
-    # Mapeo de Placas (Apuntando exactamente a la columna 'placa' que se ve en la captura)
+    # Mapeo de Placas (buscando en la columna 'placa')
     items_placas = ""
     for eq in lista_maestra:
         placa = (eq.get("placa") or eq.get("codigo_placa") or eq.get("codigo_interno") or "").strip()
         if placa:
             items_placas += f"<item><label>{placa}</label><value>{placa}</value></item>\n"
 
-    # Respaldos de seguridad
+    # Respaldos en caso de consulta vacía
     if not items_operadores:
         items_operadores = "<item><label>OPERADOR GENERAL</label><value>OPERADOR GENERAL</value></item>\n"
     if not items_placas:
