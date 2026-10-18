@@ -8,7 +8,7 @@
     <model>
       <instance>
         <data id="checklist_guardia_qorilazo_v1">
-          <!-- Datos Generales -->
+          <!-- 1. Datos Generales -->
           <fecha_inspeccion/>
           <guardia/>
           <codigo_placa/>
@@ -20,7 +20,7 @@
           <nombre_operador/>
           <dni_operador/>
 
-          <!-- Documentación -->
+          <!-- 2. Documentación -->
           <doc_fotocheck>OK</doc_fotocheck>
           <doc_tarjeta_propiedad>OK</doc_tarjeta_propiedad>
           <doc_soat>OK</doc_soat>
@@ -31,7 +31,7 @@
           <doc_certificado_operatividad>OK</doc_certificado_operatividad>
           <doc_inspeccion_semestral>OK</doc_inspeccion_semestral>
 
-          <!-- Cabina de Operación -->
+          <!-- 3. Cabina de Operación -->
           <cabina_asiento>BUENO</cabina_asiento>
           <cabina_correa>BUENO</cabina_correa>
           <cabina_luces>BUENO</cabina_luces>
@@ -42,14 +42,14 @@
           <cabina_tapiz>BUENO</cabina_tapiz>
           <cabina_chapas>BUENO</cabina_chapas>
 
-          <!-- Compartimiento de Motor -->
+          <!-- 4. Compartimiento de Motor -->
           <motor_tapa_aceite>BUENO</motor_tapa_aceite>
           <motor_medidor_aceite>BUENO</motor_medidor_aceite>
           <motor_tapa_radiador>BUENO</motor_tapa_radiador>
           <motor_tapa_hidraulico>BUENO</motor_tapa_hidraulico>
           <motor_reservorio_limpia>BUENO</motor_reservorio_limpia>
 
-          <!-- Elementos de Seguridad -->
+          <!-- 5. Elementos de Seguridad -->
           <seg_conos>BUENO</seg_conos>
           <seg_triangulos>BUENO</seg_triangulos>
           <seg_tacos>BUENO</seg_tacos>
@@ -57,7 +57,7 @@
           <seg_kit_antiderrame>BUENO</seg_kit_antiderrame>
           <seg_botiquin>BUENO</seg_botiquin>
 
-          <!-- Herramientas de Equipo -->
+          <!-- 6. Herramientas de Equipo -->
           <herr_cable_remolque>BUENO</herr_cable_remolque>
           <herr_cable_bateria>BUENO</herr_cable_bateria>
           <herr_gata>BUENO</herr_gata>
@@ -72,7 +72,7 @@
           <herr_linterna>BUENO</herr_linterna>
           <herr_martillo_goma>BUENO</herr_martillo_goma>
 
-          <!-- Neumáticos (mm y estado) -->
+          <!-- 7. Neumáticos -->
           <pos_1_mm/>
           <pos_1_est>BUENO</pos_1_est>
           <pos_2_mm/>
@@ -84,17 +84,15 @@
           <pos_repuesto_mm/>
           <pos_repuesto_est>BUENO</pos_repuesto_est>
 
-          <!-- Fotos Requeridas -->
+          <!-- 8. Evidencias y Observaciones -->
           <foto_combustible/>
           <foto_cabina/>
           <foto_hallazgo_1/>
           <foto_hallazgo_2/>
-
-          <!-- Observaciones -->
           <observaciones_estado_equipo/>
           <observaciones_adicionales/>
 
-          <!-- Firmas -->
+          <!-- 9. Firmas -->
           <firma_operador/>
           <firma_supervisor/>
         </data>
@@ -106,20 +104,19 @@
       <bind nodeset="/data/codigo_placa" type="string" required="true()"/>
       <bind nodeset="/data/km_hr" type="decimal" required="true()"/>
       <bind nodeset="/data/nombre_operador" type="string" required="true()"/>
-      
-      <!-- Fotos obligatorio/opcional -->
+
+      <!-- Tipos de campo para fotos y firmas -->
       <bind nodeset="/data/foto_combustible" type="binary" required="true()"/>
       <bind nodeset="/data/foto_cabina" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_1" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_2" type="binary"/>
-
-      <!-- Firmas obligatorio/opcional -->
       <bind nodeset="/data/firma_operador" type="binary" required="true()"/>
       <bind nodeset="/data/firma_supervisor" type="binary"/>
     </model>
   </h:head>
 
   <h:body>
+    <!-- BLOQUE 1: DATOS GENERALES -->
     <group appearance="field-list">
       <label>📋 1. DATOS GENERALES DE INSPECCIÓN</label>
       <select1 ref="/data/guardia" appearance="horizontal">
@@ -141,8 +138,168 @@
       </input>
     </group>
 
+    <!-- BLOQUE 2: DOCUMENTACIÓN -->
     <group appearance="field-list">
-      <label>📸 2. EVIDENCIAS FOTOGRÁFICAS</label>
+      <label>📄 2. DOCUMENTACIÓN DEL VEHÍCULO</label>
+      <select1 ref="/data/doc_fotocheck" appearance="horizontal">
+        <label>Fotocheck:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_tarjeta_propiedad" appearance="horizontal">
+        <label>Tarjeta de Propiedad:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_soat" appearance="horizontal">
+        <label>SOAT:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_inspeccion_tecnica" appearance="horizontal">
+        <label>Inspección Técnica Vehicular:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+    </group>
+
+    <!-- BLOQUE 3: CABINA DE OPERACIÓN -->
+    <group appearance="field-list">
+      <label>🛞 3. CABINA DE OPERACIÓN</label>
+      <select1 ref="/data/cabina_asiento" appearance="horizontal">
+        <label>Asiento de Operador:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_correa" appearance="horizontal">
+        <label>Correa / Cinturón de Seguridad:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_luces" appearance="horizontal">
+        <label>Luces Interiores:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_parabrisas" appearance="horizontal">
+        <label>Parabrisas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+    </group>
+
+    <!-- BLOQUE 4: COMPARTIMIENTO DE MOTOR -->
+    <group appearance="field-list">
+      <label>⚙️ 4. COMPARTIMIENTO DE MOTOR</label>
+      <select1 ref="/data/motor_tapa_aceite" appearance="horizontal">
+        <label>Tapa de Aceite de Motor:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/motor_medidor_aceite" appearance="horizontal">
+        <label>Medidor de Aceite / Varilla:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/motor_tapa_radiador" appearance="horizontal">
+        <label>Tapa de Radiador:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+    </group>
+
+    <!-- BLOQUE 5: ELEMENTOS DE SEGURIDAD -->
+    <group appearance="field-list">
+      <label>🛡️ 5. ELEMENTOS DE SEGURIDAD</label>
+      <select1 ref="/data/seg_extintor" appearance="horizontal">
+        <label>Extintor PQS / PQS Inspeccionado:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/seg_conos" appearance="horizontal">
+        <label>Conos de Seguridad / Cintas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/seg_botiquin" appearance="horizontal">
+        <label>Botiquín de Primeros Auxilios:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+    </group>
+
+    <!-- BLOQUE 6: HERRAMIENTAS DE EQUIPO -->
+    <group appearance="field-list">
+      <label>🔧 6. HERRAMIENTAS DE EQUIPO</label>
+      <select1 ref="/data/herr_gata" appearance="horizontal">
+        <label>Gata Hidráulica:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_llave_ruedas" appearance="horizontal">
+        <label>Llave de Ruedas con Palanca:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_medidor_cocadas" appearance="horizontal">
+        <label>Medidor de Cocadas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+    </group>
+
+    <!-- BLOQUE 7: NEUMÁTICOS -->
+    <group appearance="field-list">
+      <label>🚙 7. MEDIS Y ESTADO DE NEUMÁTICOS</label>
+      <input ref="/data/pos_1_mm">
+        <label>Posición 1 - Cocada (mm):</label>
+      </input>
+      <select1 ref="/data/pos_1_est" appearance="horizontal">
+        <label>Estado Posición 1:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <input ref="/data/pos_2_mm">
+        <label>Posición 2 - Cocada (mm):</label>
+      </input>
+      <select1 ref="/data/pos_2_est" appearance="horizontal">
+        <label>Estado Posición 2:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <input ref="/data/pos_repuesto_mm">
+        <label>Neumático Repuesto - Cocada (mm):</label>
+      </input>
+      <select1 ref="/data/pos_repuesto_est" appearance="horizontal">
+        <label>Estado Repuesto:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+    </group>
+
+    <!-- BLOQUE 8: FOTOS Y OBSERVACIONES -->
+    <group appearance="field-list">
+      <label>📸 8. EVIDENCIAS FOTOGRÁFICAS Y OBSERVACIONES</label>
       <upload ref="/data/foto_combustible" mediatype="image/*">
         <label>📷 Foto Nivel de Combustible / Tablero (Obligatorio):</label>
       </upload>
@@ -150,20 +307,27 @@
         <label>📷 Foto de la Cabina de Operación (Opcional):</label>
       </upload>
       <upload ref="/data/foto_hallazgo_1" mediatype="image/*">
-        <label>📷 Foto Evidencia / Hallazgo 1 (Opcional):</label>
+        <label>📷 Foto Hallazgo / Raspones 1 (Opcional):</label>
       </upload>
       <upload ref="/data/foto_hallazgo_2" mediatype="image/*">
-        <label>📷 Foto Evidencia / Hallazgo 2 (Opcional):</label>
+        <label>📷 Foto Hallazgo / Raspones 2 (Opcional):</label>
       </upload>
+      <input ref="/data/observaciones_estado_equipo">
+        <label>Observaciones del Estado del Equipo (Raspones/Abolladuras):</label>
+      </input>
+      <input ref="/data/observaciones_adicionales">
+        <label>Observaciones Adicionales y/o Elementos Faltantes:</label>
+      </input>
     </group>
 
+    <!-- BLOQUE 9: FIRMAS DIGITALES -->
     <group appearance="field-list">
-      <label>✍️ 3. FIRMAS DE CONFORMIDAD</label>
+      <label>✍️ 9. FIRMAS DE CONFORMIDAD</label>
       <upload ref="/data/firma_operador" mediatype="image/*" appearance="draw">
         <label>✍️ Firma del Operador (Obligatoria):</label>
       </upload>
       <upload ref="/data/firma_supervisor" mediatype="image/*" appearance="draw">
-        <label>✍️ Firma del Supervisor Operaciones (Opcional):</label>
+        <label>✍️ Firma Supervisor de Operaciones (Opcional):</label>
       </upload>
     </group>
   </h:body>
