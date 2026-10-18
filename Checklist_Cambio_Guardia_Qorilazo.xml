@@ -105,7 +105,7 @@
       <bind nodeset="/data/km_hr" type="decimal" required="true()"/>
       <bind nodeset="/data/nombre_operador" type="string" required="true()"/>
 
-      <!-- Tipos de campo para fotos y firmas -->
+      <!-- Fotos y Firmas -->
       <bind nodeset="/data/foto_combustible" type="binary" required="true()"/>
       <bind nodeset="/data/foto_cabina" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_1" type="binary"/>
@@ -116,7 +116,7 @@
   </h:head>
 
   <h:body>
-    <!-- BLOQUE 1: DATOS GENERALES CON LISTA DESPLEGABLE -->
+    <!-- BLOQUE 1: DATOS GENERALES CON LISTAS DESPLEGABLES CONECTADAS A SUPABASE -->
     <group appearance="field-list">
       <label>📋 1. DATOS GENERALES DE INSPECCIÓN</label>
       <select1 ref="/data/guardia" appearance="horizontal">
@@ -125,7 +125,7 @@
         <item><label>SALIENTE</label><value>SALIENTE</value></item>
       </select1>
       
-      <!-- Lista Desplegable con Buscador de Placas -->
+      <!-- Lista Desplegable Dinámica de Placas -->
       <select1 ref="/data/codigo_placa" appearance="minimal">
         <label>Seleccione Código / Placa del Equipo:</label>
         <!-- ITEMS_PLACAS -->
@@ -135,7 +135,7 @@
         <label>Lectura Actual (KM / HR):</label>
       </input>
       
-      <!-- Lista Desplegable con Buscador de Operadores -->
+      <!-- Lista Desplegable Dinámica de Operadores -->
       <select1 ref="/data/nombre_operador" appearance="minimal">
         <label>Seleccione Operador Registrado:</label>
         <!-- ITEMS_OPERADORES -->
@@ -146,7 +146,7 @@
       </input>
     </group>
 
-    <!-- BLOQUE 2: DOCUMENTACIÓN -->
+    <!-- BLOQUE 2: DOCUMENTACIÓN DEL VEHÍCULO -->
     <group appearance="field-list">
       <label>📄 2. DOCUMENTACIÓN DEL VEHÍCULO</label>
       <select1 ref="/data/doc_fotocheck" appearance="horizontal">
@@ -169,6 +169,36 @@
       </select1>
       <select1 ref="/data/doc_inspeccion_tecnica" appearance="horizontal">
         <label>Inspección Técnica Vehicular:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_tarjeta_circulacion" appearance="horizontal">
+        <label>Tarjeta de Circulación / Mercancías:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_poliza_seguro" appearance="horizontal">
+        <label>Póliza de Seguro:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_certificado_gps" appearance="horizontal">
+        <label>Certificado GPS:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_certificado_operatividad" appearance="horizontal">
+        <label>Certificado de Operatividad:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
+      <select1 ref="/data/doc_inspeccion_semestral" appearance="horizontal">
+        <label>Inspección Semestral:</label>
         <item><label>OK</label><value>OK</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>VENCE</label><value>VENCE</value></item>
@@ -196,8 +226,38 @@
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
+      <select1 ref="/data/cabina_espejo" appearance="horizontal">
+        <label>Espejo Interior:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_retrovisores" appearance="horizontal">
+        <label>Retrovisores Exteriores:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
       <select1 ref="/data/cabina_parabrisas" appearance="horizontal">
         <label>Parabrisas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_vidrios" appearance="horizontal">
+        <label>Vidrios de Puerta:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_tapiz" appearance="horizontal">
+        <label>Tapiz de Puerta:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/cabina_chapas" appearance="horizontal">
+        <label>Chapas y Manijas de Puerta:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -225,19 +285,49 @@
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
+      <select1 ref="/data/motor_tapa_hidraulico" appearance="horizontal">
+        <label>Tapa de Aceite Hidráulico:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/motor_reservorio_limpia" appearance="horizontal">
+        <label>Reservorio Limpiaparabrisas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
     </group>
 
     <!-- BLOQUE 5: ELEMENTOS DE SEGURIDAD -->
     <group appearance="field-list">
       <label>🛡️ 5. ELEMENTOS DE SEGURIDAD</label>
-      <select1 ref="/data/seg_extintor" appearance="horizontal">
-        <label>Extintor PQS / PQS Inspeccionado:</label>
+      <select1 ref="/data/seg_conos" appearance="horizontal">
+        <label>Conos con Cinta Amarilla:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
-      <select1 ref="/data/seg_conos" appearance="horizontal">
-        <label>Conos de Seguridad / Cintas:</label>
+      <select1 ref="/data/seg_triangulos" appearance="horizontal">
+        <label>Triángulos de Seguridad:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/seg_tacos" appearance="horizontal">
+        <label>Tacos de Seguridad:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/seg_extintor" appearance="horizontal">
+        <label>Extintor PQS Inspeccionado:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/seg_kit_antiderrame" appearance="horizontal">
+        <label>Kit Antiderrame:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -253,6 +343,18 @@
     <!-- BLOQUE 6: HERRAMIENTAS DE EQUIPO -->
     <group appearance="field-list">
       <label>🔧 6. HERRAMIENTAS DE EQUIPO</label>
+      <select1 ref="/data/herr_cable_remolque" appearance="horizontal">
+        <label>Cable de Remolque:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_cable_bateria" appearance="horizontal">
+        <label>Cable de Batería:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
       <select1 ref="/data/herr_gata" appearance="horizontal">
         <label>Gata Hidráulica:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
@@ -260,7 +362,25 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/herr_llave_ruedas" appearance="horizontal">
-        <label>Llave de Ruedas con Palanca:</label>
+        <label>Llave de Ruedas con Palancas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_manguera_aire" appearance="horizontal">
+        <label>Manguera de Presión de Aire:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_medidor_aire" appearance="horizontal">
+        <label>Medidor de Presión de Aire:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_pala_pico" appearance="horizontal">
+        <label>Pala y Pico:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -271,11 +391,41 @@
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
+      <select1 ref="/data/herr_llaves_mixtas" appearance="horizontal">
+        <label>Llaves Mixtas N° 8,10,11,12,13,14,17,19:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_alicate" appearance="horizontal">
+        <label>Alicate:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_destornillador" appearance="horizontal">
+        <label>Destornillador Plano y Estrella:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_linterna" appearance="horizontal">
+        <label>Linterna de Mano a Pilas:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <select1 ref="/data/herr_martillo_goma" appearance="horizontal">
+        <label>Martillo de Goma Antichispa:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
     </group>
 
     <!-- BLOQUE 7: NEUMÁTICOS -->
     <group appearance="field-list">
-      <label>🚙 7. MEDIS Y ESTADO DE NEUMÁTICOS</label>
+      <label>🚙 7. NEUMÁTICOS (MEDICIÓN Y ESTADO)</label>
       <input ref="/data/pos_1_mm">
         <label>Posición 1 - Cocada (mm):</label>
       </input>
@@ -294,6 +444,24 @@
         <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
+      <input ref="/data/pos_3_mm">
+        <label>Posición 3 - Cocada (mm):</label>
+      </input>
+      <select1 ref="/data/pos_3_est" appearance="horizontal">
+        <label>Estado Posición 3:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
+      <input ref="/data/pos_4_mm">
+        <label>Posición 4 - Cocada (mm):</label>
+      </input>
+      <select1 ref="/data/pos_4_est" appearance="horizontal">
+        <label>Estado Posición 4:</label>
+        <item><label>BUENO</label><value>BUENO</value></item>
+        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
+        <item><label>N/A</label><value>N/A</value></item>
+      </select1>
       <input ref="/data/pos_repuesto_mm">
         <label>Neumático Repuesto - Cocada (mm):</label>
       </input>
@@ -305,7 +473,7 @@
       </select1>
     </group>
 
-    <!-- BLOQUE 8: FOTOS Y OBSERVACIONES -->
+    <!-- BLOQUE 8: FOTOS Y OBSERVACIONES DE CAMPO -->
     <group appearance="field-list">
       <label>📸 8. EVIDENCIAS FOTOGRÁFICAS Y OBSERVACIONES</label>
       <upload ref="/data/foto_combustible" mediatype="image/*">
@@ -328,7 +496,7 @@
       </input>
     </group>
 
-    <!-- BLOQUE 9: FIRMAS DIGITALES -->
+    <!-- BLOQUE 9: FIRMAS DIGITALES DE CONFORMIDAD -->
     <group appearance="field-list">
       <label>✍️ 9. FIRMAS DE CONFORMIDAD</label>
       <upload ref="/data/firma_operador" mediatype="image/*" appearance="draw">
