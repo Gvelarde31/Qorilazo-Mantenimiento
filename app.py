@@ -294,7 +294,7 @@ modulo = st.sidebar.radio(
         "3. Reporte Diario (Hoja RD)",
         "4. Programa Mantenimiento (Control Semanal)",
         "5. Vale de Combustible & Z-Score",
-        "6. Valorización & Catálogo de Insumos"
+        "6. Valorización & Catálogo de Insumos",
         "7. Checklist Cambio de Guardia (ODK)"
     ]
 )
