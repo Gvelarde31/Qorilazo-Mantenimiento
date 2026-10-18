@@ -22,10 +22,10 @@ def obtener_datos_supabase(tabla):
         if res.status_code == 200:
             return res.json()
     except Exception as e:
-        print(f"Error en {tabla}: {e}")
+        print(f"Error consultando {tabla}: {e}")
     return []
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101807)
+# 1. Endpoint OpenRosa FormList (Versión 2026101808)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -35,8 +35,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101807</version>
-        <hash>md5:qorilazo2026v07</hash>
+        <version>2026101808</version>
+        <hash>md5:qorilazo2026v08</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -50,7 +50,6 @@ async def download_form():
 
     items_operadores = ""
     for op in operadores:
-        # Busca automáticamente en cualquier nombre común de columna
         nombre = (op.get("nombre_apellidos") or op.get("nombre") or op.get("operador") or op.get("apellidos_nombres") or "").strip()
         if nombre:
             items_operadores += f"<item><label>{nombre}</label><value>{nombre}</value></item>\n"
@@ -61,15 +60,18 @@ async def download_form():
         if placa:
             items_placas += f"<item><label>{placa}</label><value>{placa}</value></item>\n"
 
+    # Garantizar que NUNCA queden vacías las opciones para evitar el error 'has no choices'
+    if not items_operadores:
+        items_operadores = "<item><label>OPERADOR GENERAL</label><value>OPERADOR GENERAL</value></item>\n"
+    if not items_placas:
+        items_placas = "<item><label>EQUIPO PRUEBA (EQ-001)</label><value>EQ-001</value></item>\n"
+
     if os.path.exists("Checklist_Cambio_Guardia_Qorilazo.xml"):
         with open("Checklist_Cambio_Guardia_Qorilazo.xml", "r", encoding="utf-8") as f:
             xml_data = f.read()
 
-        # Remplaza la etiqueta de lista vacía
-        if items_operadores:
-            xml_data = xml_data.replace("<!-- ITEMS_OPERADORES -->", items_operadores)
-        if items_placas:
-            xml_data = xml_data.replace("<!-- ITEMS_PLACAS -->", items_placas)
+        xml_data = xml_data.replace("<!-- ITEMS_OPERADORES -->", items_operadores)
+        xml_data = xml_data.replace("<!-- ITEMS_PLACAS -->", items_placas)
 
         return Response(content=xml_data, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
 
