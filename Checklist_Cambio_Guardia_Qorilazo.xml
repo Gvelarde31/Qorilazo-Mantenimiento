@@ -116,7 +116,7 @@
   </h:head>
 
   <h:body>
-    <!-- BLOQUE 1: DATOS GENERALES -->
+    <!-- BLOQUE 1: DATOS GENERALES CON LISTA DESPLEGABLE -->
     <group appearance="field-list">
       <label>📋 1. DATOS GENERALES DE INSPECCIÓN</label>
       <select1 ref="/data/guardia" appearance="horizontal">
@@ -124,17 +124,25 @@
         <item><label>ENTRANTE</label><value>ENTRANTE</value></item>
         <item><label>SALIENTE</label><value>SALIENTE</value></item>
       </select1>
-      <input ref="/data/codigo_placa">
-        <label>Código / Placa del Equipo:</label>
-      </input>
+      
+      <!-- Lista Desplegable con Buscador de Placas -->
+      <select1 ref="/data/codigo_placa" appearance="minimal">
+        <label>Seleccione Código / Placa del Equipo:</label>
+        <!-- ITEMS_PLACAS -->
+      </select1>
+      
       <input ref="/data/km_hr">
         <label>Lectura Actual (KM / HR):</label>
       </input>
-      <input ref="/data/nombre_operador">
-        <label>Nombre Completo del Operador:</label>
-      </input>
+      
+      <!-- Lista Desplegable con Buscador de Operadores -->
+      <select1 ref="/data/nombre_operador" appearance="minimal">
+        <label>Seleccione Operador Registrado:</label>
+        <!-- ITEMS_OPERADORES -->
+      </select1>
+      
       <input ref="/data/dni_operador">
-        <label>DNI del Operador:</label>
+        <label>DNI del Operador (Opcional):</label>
       </input>
     </group>
 
