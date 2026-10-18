@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 app = FastAPI(title="Servidor ODK Qorilazo")
 
+# Lectura de variables de entorno de Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip('/')
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
@@ -16,15 +17,19 @@ HEADERS_SUPABASE = {
 }
 
 def obtener_datos_supabase(tabla):
+    """Consulta filas de cualquier tabla en Supabase"""
     try:
-        res = requests.get(f"{SUPABASE_URL}/rest/v1/{tabla}?select=*", headers=HEADERS_SUPABASE)
+        url = f"{SUPABASE_URL}/rest/v1/{tabla}?select=*"
+        res = requests.get(url, headers=HEADERS_SUPABASE, timeout=10)
         if res.status_code == 200:
             return res.json()
+        else:
+            print(f"Error consultando {tabla}: Status {res.status_code}")
     except Exception as e:
-        print(f"Error consultando {tabla}: {e}")
+        print(f"Excepción consultando {tabla}: {e}")
     return []
 
-# 1. Endpoint OpenRosa: Lista de Formularios
+# 1. Endpoint OpenRosa: Lista de Formularios (Versión 2026101806)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -34,68 +39,79 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101802</version>
-        <hash>md5:123456789abcdef</hash>
+        <version>2026101806</version>
+        <hash>md5:qorilazo2026version06</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
-    return Response(content=xml_content, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
+    return Response(
+        content=xml_content, 
+        media_type="text/xml", 
+        headers={"X-OpenRosa-Version": "1.0"}
+    )
 
-# 2. Endpoint OpenRosa: Descarga de XML con Listas Desplegables Dinámicas de Supabase
+# 2. Endpoint OpenRosa: Entrega el XML inyectando las listas desplegables de Supabase
 @app.get("/openrosa/forms/checklist.xml")
 async def download_form():
     operadores = obtener_datos_supabase("operadores")
     lista_maestra = obtener_datos_supabase("lista_maestra")
 
-    # Construir items de desplegable para Operadores
+    # Armar opciones desplegables de Operadores
     items_operadores = ""
     for op in operadores:
-        nombre = op.get("nombre_apellidos", op.get("nombre", "")).strip()
+        # Busca el nombre del operador considerando distintas columnas comunes
+        nombre = (op.get("nombre_apellidos") or op.get("nombre") or op.get("operador") or "").strip()
         if nombre:
             items_operadores += f"<item><label>{nombre}</label><value>{nombre}</value></item>\n"
 
-    # Construir items de desplegable para Placas / Equipos
+    # Armar opciones desplegables de Placas / Equipos
     items_placas = ""
     for eq in lista_maestra:
-        placa = eq.get("codigo_placa", eq.get("placa", "")).strip()
+        placa = (eq.get("codigo_placa") or eq.get("placa") or eq.get("codigo") or "").strip()
         if placa:
             items_placas += f"<item><label>{placa}</label><value>{placa}</value></item>\n"
 
-    # Si no hay datos aún en Supabase, colocar opciones por defecto
+    # Si aún no hay datos en las tablas de Supabase, asigna valores por defecto
     if not items_operadores:
-        items_operadores = "<item><label>OPERADOR PRUEBA</label><value>OPERADOR PRUEBA</value></item>"
+        items_operadores = "<item><label>OPERADOR GENERAL</label><value>OPERADOR GENERAL</value></item>"
     if not items_placas:
-        items_placas = "<item><label>EQ-001</label><value>EQ-001</value></item>"
+        items_placas = "<item><label>EQUIPO PRUEBA</label><value>EQUIPO PRUEBA</value></item>"
 
-    # Cargar XML base y reemplazar las listas
+    # Leer archivo XML e inyectar ítems dinámicos
     if os.path.exists("Checklist_Cambio_Guardia_Qorilazo.xml"):
         with open("Checklist_Cambio_Guardia_Qorilazo.xml", "r", encoding="utf-8") as f:
             xml_data = f.read()
-        
+
         xml_data = xml_data.replace("<!-- ITEMS_OPERADORES -->", items_operadores)
         xml_data = xml_data.replace("<!-- ITEMS_PLACAS -->", items_placas)
 
-        return Response(content=xml_data, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
-    
+        return Response(
+            content=xml_data, 
+            media_type="text/xml", 
+            headers={"X-OpenRosa-Version": "1.0"}
+        )
+
     return Response(status_code=404, content="Archivo XML no encontrado")
 
-# 3. Endpoint OpenRosa: Recepción de Formularios, Fotos y Firmas
+# 3. Endpoint OpenRosa: Recepción de Formularios, Fotos y Firmas desde ODK
 @app.post("/openrosa/submission")
 async def receive_submission(request: Request):
     form = await request.form()
     xml_file = form.get("xml_submission_file")
     if not xml_file:
         return Response(status_code=400)
-    
+
     content = await xml_file.read()
-    data_dict = xmltodict.parse(content)["data"]
-    
+    data_dict = xmltodict.parse(content).get("data", {})
+
+    # Subida de fotografías y firmas al Bucket 'inspecciones_odk' de Supabase
     urls_archivos = {}
     for key, value in form.items():
         if isinstance(value, UploadFile) and key != "xml_submission_file":
             file_bytes = await value.read()
             filename = f"{data_dict.get('codigo_placa', 'EQ')}_{value.filename}"
             upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
+            
             st_headers = {
                 "apikey": SUPABASE_KEY,
                 "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -105,26 +121,33 @@ async def receive_submission(request: Request):
             if res.status_code in [200, 201]:
                 urls_archivos[key] = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
 
+    # Inserción en la tabla 'inspecciones_guardia'
     payload = {
         "fecha_inspeccion": data_dict.get("fecha_inspeccion"),
         "guardia": data_dict.get("guardia"),
         "codigo_placa": data_dict.get("codigo_placa"),
-        "km_hr": float(data_dict.get("km_hr", 0)),
+        "km_hr": float(data_dict.get("km_hr", 0) or 0),
         "nombre_operador": data_dict.get("nombre_operador"),
         "dni_operador": data_dict.get("dni_operador"),
         "foto_combustible_url": urls_archivos.get("foto_combustible", ""),
         "foto_cabina_url": urls_archivos.get("foto_cabina", ""),
-        "foto_hallazgo_1_url": urls_archivos.get("foto_hallazgo_1", ""),
-        "foto_hallazgo_2_url": urls_archivos.get("foto_hallazgo_2", ""),
+        "foto_hallazgo_1_url": urls_archivos.get("foto_hallazgo_1"),
+        "foto_hallazgo_2_url": urls_archivos.get("foto_hallazgo_2"),
         "firma_operador_url": urls_archivos.get("firma_operador", ""),
-        "firma_supervisor_url": urls_archivos.get("firma_supervisor", "")
+        "firma_supervisor_url": urls_archivos.get("firma_supervisor")
     }
-    
+
     requests.post(f"{SUPABASE_URL}/rest/v1/inspecciones_guardia", headers=HEADERS_SUPABASE, json=payload)
-    
+
+    # Respuesta HTTP 201 requerida por el protocolo OpenRosa
     response_xml = """<?xml version="1.0" encoding="UTF-8"?>
     <openrosa-response xmlns="http://openrosa.org/xforms/response">
         <message nature="submit_success">Inspección recibida correctamente.</message>
     </openrosa-response>"""
-    
-    return Response(content=response_xml, status_code=201, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
+
+    return Response(
+        content=response_xml, 
+        status_code=201, 
+        media_type="text/xml", 
+        headers={"X-OpenRosa-Version": "1.0"}
+    )
