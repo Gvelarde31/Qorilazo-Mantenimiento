@@ -295,6 +295,7 @@ modulo = st.sidebar.radio(
         "4. Programa Mantenimiento (Control Semanal)",
         "5. Vale de Combustible & Z-Score",
         "6. Valorización & Catálogo de Insumos"
+        "7. Checklist Cambio de Guardia (ODK)"
     ]
 )
 
@@ -1736,5 +1737,153 @@ elif modulo == "6. Valorización & Catálogo de Insumos":
                     else:
                         st.error("❌ No se pudo eliminar el registro.")
 
+# =============================================================================
+# MÓDULO 7: CHECKLIST CAMBIO DE GUARDIA (ODK COLLECT)
+# =============================================================================
+elif modulo == "7. Checklist Cambio de Guardia (ODK)":
+    st.header("📋 Módulo 7: Checklist Cambio de Guardia (`inspecciones_guardia`)")
+    st.caption("Consulta consolidada de inspecciones sincroinizadas desde campo con firmas digitales y fotos de evidencia.")
+
+    # Lectura de las 3 tablas en Supabase
+    inspecciones = consultar_tabla("inspecciones_guardia")
+    detalles = consultar_tabla("inspeccion_detalles")
+    neumaticos = consultar_tabla("inspeccion_neumaticos")
+
+    df_insp = pd.DataFrame(inspecciones) if inspecciones else pd.DataFrame()
+    df_det = pd.DataFrame(detalles) if detalles else pd.DataFrame()
+    df_neu = pd.DataFrame(neumaticos) if neumaticos else pd.DataFrame()
+
+    tab_consol, tab_ficha = st.tabs([
+        "📊 Consolidado de Inspecciones",
+        "🔍 Ficha Individual, Fotos y Firmas"
+    ])
+
+    with tab_consol:
+        st.subheader("📊 Historial General de Inspecciones Sincronizadas")
+        if df_insp.empty:
+            st.info("No hay checklists de cambio de guardia registrados aún en Supabase.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                placas_disponibles = ["TODAS"] + sorted(list(df_insp["codigo_placa"].dropna().unique()))
+                placa_f = st.selectbox("Filtrar por Placa/Equipo:", placas_disponibles)
+            with c2:
+                guardias = ["TODAS", "ENTRANTE", "SALIENTE"]
+                guardia_f = st.selectbox("Filtrar por Guardia:", guardias)
+            with c3:
+                txt_b = st.text_input("🔎 Búsqueda Libre (Operador, Placa, DNI):").strip()
+
+            df_filt = df_insp.copy()
+            if placa_f != "TODAS":
+                df_filt = df_filt[df_filt["codigo_placa"] == placa_f]
+            if guardia_f != "TODAS":
+                df_filt = df_filt[df_filt["guardia"] == guardia_f]
+            if txt_b:
+                df_filt = aplicar_busqueda_libre(df_filt, ["codigo_placa", "nombre_operador", "dni_operador", "codigo_interno"], txt_b)
+
+            cols_m = ["created_at", "fecha_inspeccion", "codigo_placa", "codigo_interno", "guardia", "nombre_operador", "dni_operador", "km_hr", "adblue"]
+            cols_disp = [c for c in cols_m if c in df_filt.columns]
+
+            st.dataframe(df_filt[cols_disp], use_container_width=True)
+
+            st.download_button(
+                label="📥 Descargar Inspecciones en Excel (.xlsx)",
+                data=generar_excel_bytes(df_filt, "Inspecciones_Guardia"),
+                file_name=f"Inspecciones_Guardia_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+    with tab_ficha:
+        st.subheader("🔍 Ficha de Inspección Detallada")
+        if not df_insp.empty:
+            opciones_insp = [
+                f"{r['id']} | {r.get('fecha_inspeccion', '')} - Placa: {r.get('codigo_placa', '')} ({r.get('guardia', '')}) - Op: {r.get('nombre_operador', '')}" 
+                for _, r in df_insp.iterrows()
+            ]
+            sel_insp = st.selectbox("Seleccione una Inspección para auditar:", opciones_insp)
+            id_insp_sel = sel_insp.split(" | ")[0].strip()
+
+            record = df_insp[df_insp["id"] == id_insp_sel].iloc[0].to_dict()
+
+            # Databox General
+            st.markdown("##### 📍 Información del Operador y Equipo")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Operador", record.get("nombre_operador", "-"), delta=f"DNI: {record.get('dni_operador', '-')}")
+            k2.metric("Guardia", record.get("guardia", "-"))
+            k3.metric("Placa / Cód. Interno", record.get("codigo_placa", "-"), delta=record.get("codigo_interno", ""))
+            k4.metric("KM / Horómetro", record.get("km_hr", 0))
+
+            st.divider()
+
+            # Galería de Fotos de Evidencias
+            st.markdown("##### 📸 Evidencias Fotográficas de Campo")
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            
+            with col_f1:
+                st.caption("⛽ Nivel Combustible / Tablero")
+                if record.get("foto_combustible_url"):
+                    st.image(record["foto_combustible_url"], use_column_width=True)
+                else:
+                    st.info("Sin foto de combustible")
+
+            with col_f2:
+                st.caption("🛞 Cabina de Operación")
+                if record.get("foto_cabina_url"):
+                    st.image(record["foto_cabina_url"], use_column_width=True)
+                else:
+                    st.info("Sin foto de cabina")
+
+            with col_f3:
+                st.caption("🔍 Hallazgo / Evidencia 1")
+                if record.get("foto_hallazgo_1_url"):
+                    st.image(record["foto_hallazgo_1_url"], use_column_width=True)
+                else:
+                    st.caption("Sin hallazgos 1")
+
+            with col_f4:
+                st.caption("🔍 Hallazgo / Evidencia 2")
+                if record.get("foto_hallazgo_2_url"):
+                    st.image(record["foto_hallazgo_2_url"], use_column_width=True)
+                else:
+                    st.caption("Sin hallazgos 2")
+
+            st.divider()
+
+            # Firmas
+            st.markdown("##### ✍️ Firmas de Conformidad")
+            sf1, sf2 = st.columns(2)
+            with sf1:
+                st.caption("Firma Operador (Obligatoria)")
+                if record.get("firma_operador_url"):
+                    st.image(record["firma_operador_url"], width=250)
+            with sf2:
+                st.caption("Firma Supervisor (Opcional)")
+                if record.get("firma_supervisor_url"):
+                    st.image(record["firma_supervisor_url"], width=250)
+                else:
+                    st.info("No requiere/registra firma de supervisor")
+
+            st.divider()
+
+            # Tablas de Ítems y Neumáticos
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                st.markdown("##### ⚙️ Checklist de Componentes")
+                if not df_det.empty:
+                    det_filt = df_det[df_det["inspeccion_id"] == id_insp_sel]
+                    if not det_filt.empty:
+                        st.dataframe(det_filt[["categoria", "item_nombre", "estado"]], use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("Sin detalles registrados.")
+
+            with d_col2:
+                st.markdown("##### 🛞 Estado de Neumáticos (mm)")
+                if not df_neu.empty:
+                    neu_filt = df_neu[df_neu["inspeccion_id"] == id_insp_sel]
+                    if not neu_filt.empty:
+                        st.dataframe(neu_filt[["posicion", "remanente_mm", "estado"]], use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("Sin datos de neumáticos registrados.")
 else:
     st.info("Módulo en desarrollo para la siguiente fase de revisión.")
