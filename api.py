@@ -21,8 +21,12 @@ def get_supabase_headers():
 
 
 def clean_val(val):
-    if val is None or isinstance(val, dict):
+    """Extrae texto plano de strings o dicts parseados por xmltodict."""
+    if val is None:
         return ""
+    if isinstance(val, dict):
+        # Si xmltodict devuelve un dict con '#text', extrae el valor textual
+        return str(val.get("#text", "")).strip()
     return str(val).strip()
 
 
@@ -47,7 +51,6 @@ def normalizar_guardia(val):
     v = clean_val(val).upper()
     if v in ["ENTRANTE", "SALIENTE"]:
         return v
-    # Garantiza cumplimiento del CHECK constraint
     return "ENTRANTE"
 
 
@@ -85,10 +88,27 @@ def obtener_categoria(k):
     return "DOCUMENTACIÓN"
 
 
+def extraer_payload_xml(parsed_xml):
+    """Extrae el diccionario plano de datos del XML de ODK Collect."""
+    if not isinstance(parsed_xml, dict):
+        return {}
+    
+    # Obtener la raíz (ej. 'data' o 'checklist_guardia_qorilazo_v1')
+    root_keys = [k for k in parsed_xml.keys() if not k.startswith("@")]
+    if not root_keys:
+        return {}
+    
+    root_data = parsed_xml[root_keys[0]]
+    if not isinstance(root_data, dict):
+        return {}
+        
+    return root_data
+
+
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v37"}
+    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v38"}
 
 
 # 1. Endpoint OpenRosa FormList
@@ -106,7 +126,7 @@ async def form_list(request: Request):
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
         <version>2026101904</version>
-        <hash>md5:qorilazo2026v37</hash>
+        <hash>md5:qorilazo2026v38</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -127,7 +147,7 @@ async def download_form(request: Request):
     return Response(status_code=404, content="Archivo XML no encontrado")
 
 
-# 3. Endpoint OpenRosa Submission (Soporte completo HEAD, GET, POST)
+# 3. Endpoint OpenRosa Submission
 @app.api_route("/openrosa/submission", methods=["GET", "HEAD", "POST"])
 async def receive_submission(request: Request):
     if request.method in ["GET", "HEAD"]:
@@ -135,14 +155,14 @@ async def receive_submission(request: Request):
 
     try:
         form = await request.form()
-        print("=== INICIO DE RECEPCION MULTIPART V37 ===")
+        print("=== INICIO DE RECEPCION MULTIPART V38 ===")
 
         data = {}
         uploaded_media_map = {}
         codigo_placa = "EQ"
         ts = int(time.time())
 
-        # Primera pasada: Separar XML y subir archivos multimedia a Storage
+        # Pasada 1: Leer XML y Subir Archivos a Supabase Storage
         for key, value in form.items():
             if isinstance(value, UploadFile):
                 await value.seek(0)
@@ -151,11 +171,9 @@ async def receive_submission(request: Request):
                 if key == "xml_submission_file" or value.filename.lower().endswith(".xml"):
                     try:
                         parsed = xmltodict.parse(file_bytes)
-                        # Obtener dinámicamente la clave raíz XML (<data> o id del xform)
-                        root_key = list(parsed.keys())[0]
-                        data = parsed.get(root_key, {})
+                        data = extraer_payload_xml(parsed)
                         codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
-                        print(f" -> XML procesado correctamente para Placa: {codigo_placa}")
+                        print(f" -> XML parseado correctamente. Placa: '{codigo_placa}', Operador: '{clean_val(data.get('nombre_operador'))}'")
                     except Exception as err_xml:
                         print(f" Error parseando XML: {err_xml}")
                 else:
@@ -170,29 +188,26 @@ async def receive_submission(request: Request):
                             "x-upsert": "true"
                         }
                         res = requests.post(upload_url, headers=st_headers, data=file_bytes)
-                        print(f"    [STORAGE HTTP STATUS]: {res.status_code}")
 
                         if res.status_code in [200, 201]:
                             public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
-                            # Mapear URL usando tanto el nombre original del archivo como la clave del campo
                             uploaded_media_map[value.filename] = public_url
                             uploaded_media_map[key] = public_url
-                            print(f"    [ÉXITO STORAGE]: {public_url}")
+                            print(f"    [STORAGE ÉXITO]: {public_url}")
                         else:
-                            print(f"    [ERROR STORAGE]: {res.text}")
+                            print(f"    [STORAGE ERROR]: {res.text}")
 
         headers = get_supabase_headers()
 
-        # Función para resolver la URL pública buscando el nombre de archivo grabado en el XML
         def resolve_url(field_name):
             val_in_xml = clean_val(data.get(field_name))
             if val_in_xml and val_in_xml in uploaded_media_map:
                 return uploaded_media_map[val_in_xml]
             if field_name in uploaded_media_map:
                 return uploaded_media_map[field_name]
-            return ""
+            return None
 
-        # 1. Armar e insertar registro en `inspecciones_guardia`
+        # Pasada 2: Inserción en Tabla Principal `inspecciones_guardia`
         payload_main = {
             "fecha_inspeccion": clean_date(data.get("fecha_inspeccion")),
             "guardia": normalizar_guardia(data.get("guardia")),
@@ -229,28 +244,34 @@ async def receive_submission(request: Request):
                 inspeccion_id = inserted[0].get("id")
                 print(f"-> Registro principal guardado con ID: {inspeccion_id}")
 
-        # 2. Inserción en `inspeccion_detalles`
+        # Pasada 3: Inserción en `inspeccion_detalles`
         if inspeccion_id:
             payload_detalles = []
-            prefix_keys = ["doc_", "cabina_", "motor_", "seg_", "herr_"]
-            for k, v in data.items():
-                if any(k.startswith(p) for p in prefix_keys) and not k.endswith("_url"):
-                    payload_detalles.append({
-                        "inspeccion_id": inspeccion_id,
-                        "categoria": obtener_categoria(k),
-                        "item_nombre": k,
-                        "estado": normalizar_estado(v),
-                        "fecha_vencimiento": None
-                    })
+            prefix_keys = ("doc_", "cabina_", "motor_", "seg_", "herr_")
+            
+            for k, raw_v in data.items():
+                if k.startswith(prefix_keys) and not k.endswith(("_url", "_otros")):
+                    val_str = clean_val(raw_v)
+                    if val_str:  # Solo insertar si tiene valor de estado
+                        payload_detalles.append({
+                            "inspeccion_id": inspeccion_id,
+                            "categoria": obtener_categoria(k),
+                            "item_nombre": k,
+                            "estado": normalizar_estado(val_str),
+                            "fecha_vencimiento": None
+                        })
+
             if payload_detalles:
                 res_det = requests.post(
                     f"{SUPABASE_URL}/rest/v1/inspeccion_detalles",
                     headers=headers,
                     json=payload_detalles
                 )
-                print(f"Status Inserción Detalles: {res_det.status_code}")
+                print(f"Status Inserción Detalles: {res_det.status_code} ({len(payload_detalles)} ítems)")
+            else:
+                print("-> No se encontraron detalles para insertar.")
 
-        # 3. Inserción en `inspeccion_neumaticos`
+        # Pasada 4: Inserción en `inspeccion_neumaticos`
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
@@ -274,7 +295,7 @@ async def receive_submission(request: Request):
     except Exception as e:
         print(f"Excepción en submission: {e}")
 
-    # Respuesta XML requerida por el estándar OpenRosa
+    # Respuesta OpenRosa OK
     response_xml = """<?xml version="1.0" encoding="UTF-8"?>
     <openrosa-response xmlns="http://openrosa.org/xforms/response">
         <message nature="submit_success">Inspección recibida y registrada exitosamente.</message>
