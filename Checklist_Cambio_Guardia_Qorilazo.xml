@@ -12,6 +12,7 @@
           <fecha_inspeccion/>
           <guardia/>
           <nombre_operador/>
+          <dni_operador/>
           <equipo/>
           <marca/>
           <codigo_placa/>
@@ -104,6 +105,7 @@
       <bind nodeset="/data/fecha_inspeccion" type="date" jr:preload="date" jr:preloadParams="today"/>
       <bind nodeset="/data/guardia" type="string" required="true()"/>
       <bind nodeset="/data/nombre_operador" type="string" required="true()"/>
+      <bind nodeset="/data/dni_operador" type="string"/>
       <bind nodeset="/data/codigo_placa" type="string" required="true()"/>
       <bind nodeset="/data/km_hr" type="decimal" required="true()"/>
 
@@ -128,6 +130,9 @@
       </select1>
       <input ref="/data/nombre_operador">
         <label>Nombre del Operador:</label>
+      </input>
+      <input ref="/data/dni_operador">
+        <label>DNI del Operador:</label>
       </input>
       <input ref="/data/equipo">
         <label>Equipo:</label>
