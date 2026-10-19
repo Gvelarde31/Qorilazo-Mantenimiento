@@ -87,6 +87,7 @@
           <pos_repuesto_mm/><pos_repuesto_est>BUENO</pos_repuesto_est>
 
           <!-- 8. Evidencias y Observaciones -->
+          <foto_combustible/>
           <foto_cabina/>
           <foto_hallazgo_1/>
           <foto_hallazgo_2/>
@@ -107,6 +108,7 @@
       <bind nodeset="/data/km_hr" type="decimal" required="true()"/>
 
       <!-- Fotos y Firmas -->
+      <bind nodeset="/data/foto_combustible" type="binary"/>
       <bind nodeset="/data/foto_cabina" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_1" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_2" type="binary"/>
@@ -473,6 +475,9 @@
     <!-- BLOQUE 8: OBSERVACIONES Y FOTOS -->
     <group appearance="field-list">
       <label>📸 8. EVIDENCIAS Y OBSERVACIONES</label>
+      <upload ref="/data/foto_combustible" mediatype="image/*">
+        <label>📷 Foto Nivel de Combustible / Tablero (Opcional):</label>
+      </upload>
       <upload ref="/data/foto_cabina" mediatype="image/*">
         <label>📷 Foto de la Cabina / Inspección (Opcional):</label>
       </upload>
