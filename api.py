@@ -58,9 +58,9 @@ def obtener_categoria(k):
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v34"}
+    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v35"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101901)
+# 1. Endpoint OpenRosa FormList (Versión 2026101902)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -70,8 +70,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101901</version>
-        <hash>md5:qorilazo2026v34</hash>
+        <version>2026101902</version>
+        <hash>md5:qorilazo2026v35</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -91,27 +91,25 @@ async def download_form():
 async def receive_submission(request: Request):
     try:
         form = await request.form()
-        print("=== INICIO DE RECEPCION MULTIPART V34 ===")
+        print("=== INICIO DE RECEPCION MULTIPART V35 ===")
         
-        xml_file = form.get("xml_submission_file")
         data = {}
-        if xml_file:
-            content = await xml_file.read()
-            parsed = xmltodict.parse(content)
-            data = parsed.get("data", {})
-
-        headers = get_supabase_headers()
-        codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
+        archivos_urls = []
+        codigo_placa = "EQ"
         ts = int(time.time())
 
-        # Subida de imágenes al Storage 'inspecciones_odk' con URL corregida
-        archivos_urls = []
-        for key, value in form.items():
-            if isinstance(value, UploadFile) and key != "xml_submission_file":
+        # Recorrer todos los elementos enviados en la petición multipart
+        for key, value in form.multi_items():
+            if key == "xml_submission_file" and isinstance(value, UploadFile):
+                content = await value.read()
+                parsed = xmltodict.parse(content)
+                data = parsed.get("data", {})
+                codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
+            elif isinstance(value, UploadFile):
                 try:
                     await value.seek(0)
                     file_bytes = await value.read()
-                    print(f" -> Procesando archivo '{key}' ({len(file_bytes)} bytes)")
+                    print(f" -> Procesando adjunto '{key}' ({value.filename}) - {len(file_bytes)} bytes")
                     
                     if len(file_bytes) > 0:
                         filename = f"{codigo_placa}_{ts}_{value.filename}"
@@ -131,9 +129,11 @@ async def receive_submission(request: Request):
                             archivos_urls.append(public_url)
                             print(f"    [ÉXITO URL CREADA]: {public_url}")
                         else:
-                            print(f"    [ERROR EN STORAGE]: {res.text}")
+                            print(f"    [ERROR STORAGE]: {res.text}")
                 except Exception as err_file:
                     print(f"Excepción subiendo {key}: {err_file}")
+
+        headers = get_supabase_headers()
 
         # Asignación de URLs
         foto_combust = archivos_urls[0] if len(archivos_urls) > 0 else ""
