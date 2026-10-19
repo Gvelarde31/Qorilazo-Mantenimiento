@@ -190,7 +190,7 @@ async def receive_submission(request: Request):
                 return uploaded_media_map[val_in_xml]
             if field_name in uploaded_media_map:
                 return uploaded_media_map[field_name]
-            return None
+            return ""
 
         # 1. Armar e insertar registro en `inspecciones_guardia`
         payload_main = {
