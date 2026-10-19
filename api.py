@@ -6,7 +6,6 @@ from fastapi.responses import Response
 
 app = FastAPI(title="Servidor ODK Qorilazo")
 
-# Lectura de variables de entorno de Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip('/')
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
@@ -17,16 +16,25 @@ HEADERS_SUPABASE = {
     "Prefer": "return=minimal"
 }
 
-def parse_float(val):
-    """Convierte de forma segura textos a float evitando errores 500"""
+def clean_val(val):
+    """Limpia valores para evitar nulos o estructuras complejas"""
+    if val is None:
+        return ""
+    if isinstance(val, dict):
+        return ""
+    return str(val).strip()
+
+def clean_float(val):
+    """Convierte cadenas a número sin fallar ante textos vacíos"""
     try:
-        if val is not None and str(val).strip() != "":
-            return float(str(val).strip())
+        cleaned = clean_val(val)
+        if cleaned:
+            return float(cleaned)
     except Exception:
         pass
     return 0.0
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101811)
+# 1. Endpoint OpenRosa FormList (Versión 2026101812)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -36,8 +44,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101811</version>
-        <hash>md5:qorilazo2026v11</hash>
+        <version>2026101812</version>
+        <hash>md5:qorilazo2026v12</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -52,7 +60,7 @@ async def download_form():
         return Response(content=xml_data, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
     return Response(status_code=404, content="Archivo XML no encontrado")
 
-# 3. Endpoint OpenRosa Submission (Recepción e Inserción a Supabase)
+# 3. Endpoint OpenRosa Submission (Procesamiento Seguro)
 @app.post("/openrosa/submission")
 async def receive_submission(request: Request):
     try:
@@ -62,16 +70,16 @@ async def receive_submission(request: Request):
             return Response(status_code=400, content="Falta archivo XML")
 
         content = await xml_file.read()
-        parsed_xml = xmltodict.parse(content)
-        data_dict = parsed_xml.get("data", {})
+        parsed = xmltodict.parse(content)
+        data = parsed.get("data", {})
 
-        # Subida de imágenes/firmas al Storage 'inspecciones_odk' en Supabase
+        # Subida de imágenes/firmas al Storage 'inspecciones_odk'
         urls_archivos = {}
         for key, value in form.items():
             if isinstance(value, UploadFile) and key != "xml_submission_file":
                 file_bytes = await value.read()
                 if len(file_bytes) > 0:
-                    codigo_placa = data_dict.get("codigo_placa") or "EQ"
+                    codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
                     filename = f"{codigo_placa}_{value.filename}"
                     upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
                     
@@ -84,22 +92,18 @@ async def receive_submission(request: Request):
                     if res.status_code in [200, 201]:
                         urls_archivos[key] = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
 
-        # Estructuración del payload para la tabla 'inspecciones_guardia'
+        # Mapeo limpio hacia la tabla 'inspecciones_guardia'
         payload = {
-            "fecha_inspeccion": data_dict.get("fecha_inspeccion"),
-            "guardia": data_dict.get("guardia"),
-            "nombre_operador": data_dict.get("nombre_operador"),
-            "equipo": data_dict.get("equipo"),
-            "marca": data_dict.get("marca"),
-            "codigo_placa": data_dict.get("codigo_placa"),
-            "km_hr": parse_float(data_dict.get("km_hr")),
-            "adblue": data_dict.get("adblue"),
-            
-            # Observaciones
-            "observaciones_estado_equipo": data_dict.get("observaciones_estado_equipo"),
-            "observaciones_adicionales": data_dict.get("observaciones_adicionales"),
-            
-            # URLs de Fotos y Firmas subidas
+            "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
+            "guardia": clean_val(data.get("guardia")),
+            "nombre_operador": clean_val(data.get("nombre_operador")),
+            "equipo": clean_val(data.get("equipo")),
+            "marca": clean_val(data.get("marca")),
+            "codigo_placa": clean_val(data.get("codigo_placa")),
+            "km_hr": clean_float(data.get("km_hr")),
+            "adblue": clean_val(data.get("adblue")),
+            "observaciones_estado_equipo": clean_val(data.get("observaciones_estado_equipo")),
+            "observaciones_adicionales": clean_val(data.get("observaciones_adicionales")),
             "foto_cabina_url": urls_archivos.get("foto_cabina", ""),
             "foto_hallazgo_1_url": urls_archivos.get("foto_hallazgo_1", ""),
             "foto_hallazgo_2_url": urls_archivos.get("foto_hallazgo_2", ""),
@@ -107,20 +111,20 @@ async def receive_submission(request: Request):
             "firma_supervisor_url": urls_archivos.get("firma_supervisor", "")
         }
 
-        # Guardar inspección principal en Supabase
-        response_db = requests.post(
+        # Inserción en Supabase
+        res_db = requests.post(
             f"{SUPABASE_URL}/rest/v1/inspecciones_guardia", 
             headers=HEADERS_SUPABASE, 
             json=payload
         )
 
-        if response_db.status_code not in [200, 201]:
-            print(f"Error insertando en Supabase: {response_db.status_code} - {response_db.text}")
+        if res_db.status_code not in [200, 201]:
+            print(f"Error Supabase DB: {res_db.status_code} - {res_db.text}")
 
-        # Respuesta XML estándar de éxito del protocolo OpenRosa
+        # Respuesta OpenRosa OK
         response_xml = """<?xml version="1.0" encoding="UTF-8"?>
         <openrosa-response xmlns="http://openrosa.org/xforms/response">
-            <message nature="submit_success">Inspección recibida y guardada correctamente.</message>
+            <message nature="submit_success">Inspección recibida y registrada exitosamente.</message>
         </openrosa-response>"""
 
         return Response(
@@ -132,4 +136,4 @@ async def receive_submission(request: Request):
 
     except Exception as e:
         print(f"Excepción en submission: {e}")
-        return Response(status_code=500, content=f"Error interno del servidor: {str(e)}")
+        return Response(status_code=500, content=f"Error interno: {str(e)}")
