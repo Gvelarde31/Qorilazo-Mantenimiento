@@ -9,6 +9,8 @@ app = FastAPI(title="Servidor ODK Qorilazo")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip('/')
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
+ESTADOS_VALIDOS = {"OK", "BUENO", "FALTA", "DEFECTUOSO", "DEFECT", "VENCE", "N/A"}
+
 def get_supabase_headers():
     return {
         "apikey": SUPABASE_KEY,
@@ -31,6 +33,14 @@ def clean_float(val):
         pass
     return 0.0
 
+def normalizar_estado(val):
+    estado_upper = clean_val(val).upper()
+    if estado_upper in ESTADOS_VALIDOS:
+        return estado_upper
+    if estado_upper in ["NO APLICA", "NO_APLICA", "NONE", "NULL", ""]:
+        return "N/A"
+    return "BUENO"  # Valor por defecto seguro para el check constraint
+
 def obtener_categoria(k):
     if k.startswith("doc_"):
         return "DOCUMENTACIÓN"
@@ -49,7 +59,7 @@ def obtener_categoria(k):
 async def root():
     return {"status": "ok", "message": "Servidor ODK Qorilazo activo"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101824)
+# 1. Endpoint OpenRosa FormList (Versión 2026101825)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -59,8 +69,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101824</version>
-        <hash>md5:qorilazo2026v24</hash>
+        <version>2026101825</version>
+        <hash>md5:qorilazo2026v25</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -91,7 +101,7 @@ async def receive_submission(request: Request):
         headers = get_supabase_headers()
         codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
 
-        # Subida de fotografías y firmas al Storage
+        # Subida de fotografías y firmas al Storage 'inspecciones_odk'
         archivos_subidos = []
         for key, value in form.items():
             if isinstance(value, UploadFile) and key != "xml_submission_file":
@@ -116,7 +126,7 @@ async def receive_submission(request: Request):
                 except Exception as err_file:
                     print(f"Excepción subiendo {key}: {err_file}")
 
-        # Asignación de URLs por orden de captura en el formulario
+        # Asignación de URLs por orden de captura
         foto_comb_url = archivos_subidos[0] if len(archivos_subidos) > 0 else ""
         firma_oper_url = archivos_subidos[1] if len(archivos_subidos) > 1 else ""
 
@@ -155,7 +165,7 @@ async def receive_submission(request: Request):
                 inspeccion_id = inserted[0].get("id")
                 print(f"-> ID generado en Supabase: {inspeccion_id}")
 
-        # 2. Inserción en inspeccion_detalles (esquema exacto)
+        # 2. Inserción en inspeccion_detalles (normalizando 'estado' para cumplir con check constraint)
         if inspeccion_id:
             payload_detalles = []
             prefix_keys = ["doc_", "cabina_", "motor_", "seg_", "herr_"]
@@ -165,7 +175,7 @@ async def receive_submission(request: Request):
                         "inspeccion_id": inspeccion_id,
                         "categoria": obtener_categoria(k),
                         "item_nombre": k,
-                        "estado": clean_val(v),
+                        "estado": normalizar_estado(v),
                         "fecha_vencimiento": None
                     })
             if payload_detalles:
@@ -174,13 +184,13 @@ async def receive_submission(request: Request):
                 if res_det.status_code not in [200, 201]:
                     print(f"-> DETALLE ERROR DETALLES: {res_det.text}")
 
-        # 3. Inserción en inspeccion_neumaticos (esquema exacto: remanente_mm)
+        # 3. Inserción en inspeccion_neumaticos
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
             for pos in posiciones:
                 mm_val = clean_float(data.get(f"{pos}_mm"))
-                est_val = clean_val(data.get(f"{pos}_est")) or "BUENO"
+                est_val = normalizar_estado(data.get(f"{pos}_est"))
                 payload_neumaticos.append({
                     "inspeccion_id": inspeccion_id,
                     "posicion": pos,
