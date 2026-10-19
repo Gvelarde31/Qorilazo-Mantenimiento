@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime
 import xmltodict
 import requests
 from fastapi import FastAPI, Request, Response, UploadFile
@@ -32,6 +33,12 @@ def clean_float(val):
         pass
     return 0.0
 
+def clean_date(val):
+    s = clean_val(val)
+    if s and len(s) >= 10:
+        return s[:10]
+    return datetime.now().strftime("%Y-%m-%d")
+
 def normalizar_estado(val):
     v = clean_val(val).upper()
     if v in ["DEFECT", "DEFECTUOSO", "MALO"]:
@@ -58,9 +65,9 @@ def obtener_categoria(k):
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v36"}
+    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v37"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101903)
+# 1. Endpoint OpenRosa FormList (Versión 2026101904)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -70,8 +77,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101903</version>
-        <hash>md5:qorilazo2026v36</hash>
+        <version>2026101904</version>
+        <hash>md5:qorilazo2026v37</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -91,36 +98,37 @@ async def download_form():
 async def receive_submission(request: Request):
     try:
         form = await request.form()
-        print("=== INICIO DE RECEPCION MULTIPART V36 ===")
+        print("=== INICIO DE RECEPCION MULTIPART V37 ===")
 
-        # 1. Extraer y procesar datos del XML
         data = {}
-        xml_file = form.get("xml_submission_file")
-        if xml_file and isinstance(xml_file, UploadFile):
-            content = await xml_file.read()
-            parsed = xmltodict.parse(content)
-            data = parsed.get("data", {})
-
-        codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
+        archivos_urls = []
+        codigo_placa = "EQ"
         ts = int(time.time())
 
-        # 2. Extraer y subir archivos adjuntos (imágenes / firmas)
-        archivos_urls = []
-        for field_name, item in form.items():
-            if field_name != "xml_submission_file" and isinstance(item, UploadFile):
-                try:
-                    await item.seek(0)
-                    file_bytes = await item.read()
-                    print(f" -> Subiendo archivo {field_name} ({item.filename}): {len(file_bytes)} bytes")
-
+        # Recorrer todos los elementos enviados
+        for key, value in form.items():
+            if isinstance(value, UploadFile):
+                await value.seek(0)
+                file_bytes = await value.read()
+                
+                if key == "xml_submission_file" or value.filename.endswith(".xml"):
+                    try:
+                        parsed = xmltodict.parse(file_bytes)
+                        data = parsed.get("data", {})
+                        codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
+                        print(f" -> XML procesado correctamente para Placa: {codigo_placa}")
+                    except Exception as err_xml:
+                        print(f" Error parseando XML: {err_xml}")
+                else:
+                    print(f" -> Procesando imagen/firma: '{key}' ({value.filename}) - {len(file_bytes)} bytes")
                     if len(file_bytes) > 0:
-                        filename = f"{codigo_placa}_{ts}_{item.filename}"
+                        filename = f"{codigo_placa}_{ts}_{value.filename}"
                         upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
 
                         st_headers = {
                             "apikey": SUPABASE_KEY,
                             "Authorization": f"Bearer {SUPABASE_KEY}",
-                            "Content-Type": item.content_type or "image/png",
+                            "Content-Type": value.content_type or "image/png",
                             "x-upsert": "true"
                         }
                         res = requests.post(upload_url, headers=st_headers, data=file_bytes)
@@ -132,8 +140,6 @@ async def receive_submission(request: Request):
                             print(f"    [ÉXITO STORAGE]: {public_url}")
                         else:
                             print(f"    [ERROR STORAGE]: {res.text}")
-                except Exception as err_file:
-                    print(f"Excepción subiendo {field_name}: {err_file}")
 
         headers = get_supabase_headers()
 
@@ -143,9 +149,9 @@ async def receive_submission(request: Request):
         print(f"-> Foto Combustible URL: '{foto_combust}'")
         print(f"-> Firma Operador URL: '{firma_operad}'")
 
-        # 3. Guardar en inspecciones_guardia
+        # 1. Guardar en inspecciones_guardia
         payload_main = {
-            "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
+            "fecha_inspeccion": clean_date(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
             "nombre_operador": clean_val(data.get("nombre_operador")),
             "dni_operador": clean_val(data.get("dni_operador")),
@@ -180,7 +186,7 @@ async def receive_submission(request: Request):
                 inspeccion_id = inserted[0].get("id")
                 print(f"-> Registro principal guardado con ID: {inspeccion_id}")
 
-        # 4. Inserción en inspeccion_detalles
+        # 2. Inserción en inspeccion_detalles
         if inspeccion_id:
             payload_detalles = []
             prefix_keys = ["doc_", "cabina_", "motor_", "seg_", "herr_"]
@@ -197,7 +203,7 @@ async def receive_submission(request: Request):
                 res_det = requests.post(f"{SUPABASE_URL}/rest/v1/inspeccion_detalles", headers=headers, json=payload_detalles)
                 print(f"Status Inserción Detalles: {res_det.status_code}")
 
-        # 5. Inserción en inspeccion_neumaticos
+        # 3. Inserción en inspeccion_neumaticos
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
