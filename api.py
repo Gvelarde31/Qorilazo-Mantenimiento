@@ -58,9 +58,9 @@ def obtener_categoria(k):
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v35"}
+    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v36"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101902)
+# 1. Endpoint OpenRosa FormList (Versión 2026101903)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -70,8 +70,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101902</version>
-        <hash>md5:qorilazo2026v35</hash>
+        <version>2026101903</version>
+        <hash>md5:qorilazo2026v36</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -91,58 +91,59 @@ async def download_form():
 async def receive_submission(request: Request):
     try:
         form = await request.form()
-        print("=== INICIO DE RECEPCION MULTIPART V35 ===")
-        
+        print("=== INICIO DE RECEPCION MULTIPART V36 ===")
+
+        # 1. Extraer y procesar datos del XML
         data = {}
-        archivos_urls = []
-        codigo_placa = "EQ"
+        xml_file = form.get("xml_submission_file")
+        if xml_file and isinstance(xml_file, UploadFile):
+            content = await xml_file.read()
+            parsed = xmltodict.parse(content)
+            data = parsed.get("data", {})
+
+        codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
         ts = int(time.time())
 
-        # Recorrer todos los elementos enviados en la petición multipart
-        for key, value in form.multi_items():
-            if key == "xml_submission_file" and isinstance(value, UploadFile):
-                content = await value.read()
-                parsed = xmltodict.parse(content)
-                data = parsed.get("data", {})
-                codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
-            elif isinstance(value, UploadFile):
+        # 2. Extraer y subir archivos adjuntos (imágenes / firmas)
+        archivos_urls = []
+        for field_name, item in form.items():
+            if field_name != "xml_submission_file" and isinstance(item, UploadFile):
                 try:
-                    await value.seek(0)
-                    file_bytes = await value.read()
-                    print(f" -> Procesando adjunto '{key}' ({value.filename}) - {len(file_bytes)} bytes")
-                    
+                    await item.seek(0)
+                    file_bytes = await item.read()
+                    print(f" -> Subiendo archivo {field_name} ({item.filename}): {len(file_bytes)} bytes")
+
                     if len(file_bytes) > 0:
-                        filename = f"{codigo_placa}_{ts}_{value.filename}"
+                        filename = f"{codigo_placa}_{ts}_{item.filename}"
                         upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
-                        
+
                         st_headers = {
                             "apikey": SUPABASE_KEY,
                             "Authorization": f"Bearer {SUPABASE_KEY}",
-                            "Content-Type": value.content_type or "image/png",
+                            "Content-Type": item.content_type or "image/png",
                             "x-upsert": "true"
                         }
                         res = requests.post(upload_url, headers=st_headers, data=file_bytes)
                         print(f"    [STORAGE HTTP STATUS]: {res.status_code}")
-                        
+
                         if res.status_code in [200, 201]:
                             public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
                             archivos_urls.append(public_url)
-                            print(f"    [ÉXITO URL CREADA]: {public_url}")
+                            print(f"    [ÉXITO STORAGE]: {public_url}")
                         else:
                             print(f"    [ERROR STORAGE]: {res.text}")
                 except Exception as err_file:
-                    print(f"Excepción subiendo {key}: {err_file}")
+                    print(f"Excepción subiendo {field_name}: {err_file}")
 
         headers = get_supabase_headers()
 
-        # Asignación de URLs
         foto_combust = archivos_urls[0] if len(archivos_urls) > 0 else ""
         firma_operad = archivos_urls[1] if len(archivos_urls) > 1 else ""
 
-        print(f"-> URL asignada a Foto Combustible: '{foto_combust}'")
-        print(f"-> URL asignada a Firma Operador: '{firma_operad}'")
+        print(f"-> Foto Combustible URL: '{foto_combust}'")
+        print(f"-> Firma Operador URL: '{firma_operad}'")
 
-        # 1. Registro Principal (inspecciones_guardia)
+        # 3. Guardar en inspecciones_guardia
         payload_main = {
             "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
@@ -171,13 +172,15 @@ async def receive_submission(request: Request):
 
         inspeccion_id = None
         print(f"Status Inserción Principal: {res_db.status_code}")
-        if res_db.status_code in [200, 201]:
+        if res_db.status_code not in [200, 201]:
+            print(f"-> Error Principal DB: {res_db.text}")
+        else:
             inserted = res_db.json()
             if isinstance(inserted, list) and len(inserted) > 0:
                 inspeccion_id = inserted[0].get("id")
                 print(f"-> Registro principal guardado con ID: {inspeccion_id}")
 
-        # 2. Inserción en inspeccion_detalles
+        # 4. Inserción en inspeccion_detalles
         if inspeccion_id:
             payload_detalles = []
             prefix_keys = ["doc_", "cabina_", "motor_", "seg_", "herr_"]
@@ -194,7 +197,7 @@ async def receive_submission(request: Request):
                 res_det = requests.post(f"{SUPABASE_URL}/rest/v1/inspeccion_detalles", headers=headers, json=payload_detalles)
                 print(f"Status Inserción Detalles: {res_det.status_code}")
 
-        # 3. Inserción en inspeccion_neumaticos
+        # 5. Inserción en inspeccion_neumaticos
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
