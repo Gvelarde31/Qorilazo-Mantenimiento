@@ -9,17 +9,16 @@ app = FastAPI(title="Servidor ODK Qorilazo")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip('/')
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 
-HEADERS_SUPABASE = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=minimal"
-}
+def get_supabase_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
 
 def clean_val(val):
-    if val is None:
-        return ""
-    if isinstance(val, dict):
+    if val is None or isinstance(val, dict):
         return ""
     return str(val).strip()
 
@@ -32,7 +31,12 @@ def clean_float(val):
         pass
     return 0.0
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101814)
+@app.get("/")
+@app.head("/")
+async def root():
+    return {"status": "ok", "message": "Servidor ODK Qorilazo activo"}
+
+# 1. Endpoint OpenRosa FormList (Versión 2026101818)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -42,8 +46,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101814</version>
-        <hash>md5:qorilazo2026v14</hash>
+        <version>2026101818</version>
+        <hash>md5:qorilazo2026v18</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -64,33 +68,40 @@ async def receive_submission(request: Request):
     try:
         form = await request.form()
         xml_file = form.get("xml_submission_file")
-        if not xml_file:
-            return Response(status_code=400, content="Falta archivo XML")
+        
+        data = {}
+        if xml_file:
+            content = await xml_file.read()
+            parsed = xmltodict.parse(content)
+            data = parsed.get("data", {})
 
-        content = await xml_file.read()
-        parsed = xmltodict.parse(content)
-        data = parsed.get("data", {})
+        headers = get_supabase_headers()
 
-        # Subida de fotografías y firmas al Bucket 'inspecciones_odk'
+        # Subida de fotografías y firmas al Storage 'inspecciones_odk'
         urls_archivos = {}
         for key, value in form.items():
             if isinstance(value, UploadFile) and key != "xml_submission_file":
-                file_bytes = await value.read()
-                if len(file_bytes) > 0:
-                    codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
-                    filename = f"{codigo_placa}_{value.filename}"
-                    upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
-                    
-                    st_headers = {
-                        "apikey": SUPABASE_KEY,
-                        "Authorization": f"Bearer {SUPABASE_KEY}",
-                        "Content-Type": value.content_type or "image/png"
-                    }
-                    res = requests.post(upload_url, headers=st_headers, data=file_bytes)
-                    if res.status_code in [200, 201]:
-                        urls_archivos[key] = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
+                try:
+                    file_bytes = await value.read()
+                    if len(file_bytes) > 0:
+                        codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
+                        filename = f"{codigo_placa}_{value.filename}"
+                        upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
+                        
+                        st_headers = {
+                            "apikey": SUPABASE_KEY,
+                            "Authorization": f"Bearer {SUPABASE_KEY}",
+                            "Content-Type": value.content_type or "image/png"
+                        }
+                        res = requests.post(upload_url, headers=st_headers, data=file_bytes)
+                        if res.status_code in [200, 201]:
+                            urls_archivos[key] = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
+                        else:
+                            print(f"Error subiendo {key} a Storage ({res.status_code}): {res.text}")
+                except Exception as err_file:
+                    print(f"Excepción procesando archivo {key}: {err_file}")
 
-        # Payload de inserción en Supabase
+        # Payload para la tabla inspecciones_guardia
         payload = {
             "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
@@ -110,29 +121,29 @@ async def receive_submission(request: Request):
             "firma_supervisor_url": urls_archivos.get("firma_supervisor", "")
         }
 
-        # Guardar registros en la base de datos de Supabase
+        # Petición a Supabase DB
         res_db = requests.post(
             f"{SUPABASE_URL}/rest/v1/inspecciones_guardia", 
-            headers=HEADERS_SUPABASE, 
+            headers=headers, 
             json=payload
         )
 
+        print(f"Respuesta Supabase DB Status: {res_db.status_code}")
         if res_db.status_code not in [200, 201]:
             print(f"Error Supabase DB ({res_db.status_code}): {res_db.text}")
 
-        # Respuesta XML de éxito exigida por OpenRosa
-        response_xml = """<?xml version="1.0" encoding="UTF-8"?>
-        <openrosa-response xmlns="http://openrosa.org/xforms/response">
-            <message nature="submit_success">Inspección recibida y registrada exitosamente.</message>
-        </openrosa-response>"""
-
-        return Response(
-            content=response_xml, 
-            status_code=201, 
-            media_type="text/xml", 
-            headers={"X-OpenRosa-Version": "1.0"}
-        )
-
     except Exception as e:
         print(f"Excepción en submission: {e}")
-        return Response(status_code=500, content=f"Error interno: {str(e)}")
+
+    # Respuesta OpenRosa OK para ODK Collect
+    response_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <openrosa-response xmlns="http://openrosa.org/xforms/response">
+        <message nature="submit_success">Inspección recibida y registrada exitosamente.</message>
+    </openrosa-response>"""
+
+    return Response(
+        content=response_xml, 
+        status_code=201, 
+        media_type="text/xml", 
+        headers={"X-OpenRosa-Version": "1.0"}
+    )
