@@ -36,7 +36,7 @@ def clean_float(val):
 async def root():
     return {"status": "ok", "message": "Servidor ODK Qorilazo activo"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101820)
+# 1. Endpoint OpenRosa FormList (Versión 2026101821)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -46,8 +46,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101820</version>
-        <hash>md5:qorilazo2026v20</hash>
+        <version>2026101821</version>
+        <hash>md5:qorilazo2026v21</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -62,7 +62,7 @@ async def download_form():
         return Response(content=xml_data, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
     return Response(status_code=404, content="Archivo XML no encontrado")
 
-# 3. Endpoint OpenRosa Submission (Procesamiento completo de las 3 tablas)
+# 3. Endpoint OpenRosa Submission
 @app.post("/openrosa/submission")
 async def receive_submission(request: Request):
     try:
@@ -78,7 +78,7 @@ async def receive_submission(request: Request):
         headers = get_supabase_headers()
         codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
 
-        # Captura y subida de imágenes/firmas al Storage 'inspecciones_odk'
+        # Mapeo y subida de archivos/firmas al Bucket 'inspecciones_odk'
         urls_archivos = {}
         for key, value in form.items():
             if isinstance(value, UploadFile) and key != "xml_submission_file":
@@ -97,13 +97,29 @@ async def receive_submission(request: Request):
                         if res.status_code in [200, 201]:
                             public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
                             urls_archivos[key] = public_url
-                            print(f"-> Imagen subida {key}: {public_url}")
+                            
+                            # Mapeo directo por nombre del campo XML de ODK
+                            val_data_comb = clean_val(data.get("foto_combustible"))
+                            val_data_firm = clean_val(data.get("firma_operador"))
+                            if val_data_comb and val_data_comb in value.filename:
+                                urls_archivos["foto_combustible_url"] = public_url
+                            if val_data_firm and val_data_firm in value.filename:
+                                urls_archivos["firma_operador_url"] = public_url
                         else:
-                            print(f"-> Error subiendo {key} ({res.status_code}): {res.text}")
+                            print(f"Error subiendo {key} a Storage ({res.status_code}): {res.text}")
                 except Exception as err_file:
-                    print(f"-> Excepción subiendo {key}: {err_file}")
+                    print(f"Excepción procesando {key}: {err_file}")
 
-        # 1. Registro Principal: inspecciones_guardia (incluyendo DNI y URLs de imágenes)
+        # Si el mapeo dinámico no coincidió, asigna las URLs por la posición del archivo enviado
+        foto_comb_url = urls_archivos.get("foto_combustible_url") or urls_archivos.get("foto_combustible", "")
+        firma_oper_url = urls_archivos.get("firma_operador_url") or urls_archivos.get("firma_operador", "")
+
+        if not foto_comb_url and len(urls_archivos) > 0:
+            foto_comb_url = list(urls_archivos.values())[0]
+        if not firma_oper_url and len(urls_archivos) > 1:
+            firma_oper_url = list(urls_archivos.values())[1]
+
+        # 1. Guardar Registro Principal (inspecciones_guardia)
         payload_main = {
             "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
@@ -116,11 +132,11 @@ async def receive_submission(request: Request):
             "adblue": clean_val(data.get("adblue")),
             "observaciones_estado_equipo": clean_val(data.get("observaciones_estado_equipo")),
             "observaciones_adicionales": clean_val(data.get("observaciones_adicionales")),
-            "foto_combustible_url": urls_archivos.get("foto_combustible", ""),
+            "foto_combustible_url": foto_comb_url,
             "foto_cabina_url": urls_archivos.get("foto_cabina", ""),
             "foto_hallazgo_1_url": urls_archivos.get("foto_hallazgo_1", ""),
             "foto_hallazgo_2_url": urls_archivos.get("foto_hallazgo_2", ""),
-            "firma_operador_url": urls_archivos.get("firma_operador", ""),
+            "firma_operador_url": firma_oper_url,
             "firma_supervisor_url": urls_archivos.get("firma_supervisor", "")
         }
 
@@ -131,14 +147,14 @@ async def receive_submission(request: Request):
         )
 
         inspeccion_id = None
-        print(f"Respuesta Principal DB Status: {res_db.status_code}")
+        print(f"Status Inserción Principal: {res_db.status_code}")
         if res_db.status_code in [200, 201]:
-            inserted_records = res_db.json()
-            if isinstance(inserted_records, list) and len(inserted_records) > 0:
-                inspeccion_id = inserted_records[0].get("id")
-                print(f"-> Inspección creada con ID: {inspeccion_id}")
+            inserted = res_db.json()
+            if isinstance(inserted, list) and len(inserted) > 0:
+                inspeccion_id = inserted[0].get("id")
+                print(f"-> Registro guardado con ID asignado: {inspeccion_id}")
 
-        # 2. Inserción en Tabla Secundaria: inspeccion_detalles
+        # 2. Desglose e inserción en inspeccion_detalles
         if inspeccion_id:
             payload_detalles = []
             prefix_keys = ["doc_", "cabina_", "motor_", "seg_", "herr_"]
@@ -151,9 +167,9 @@ async def receive_submission(request: Request):
                     })
             if payload_detalles:
                 res_det = requests.post(f"{SUPABASE_URL}/rest/v1/inspeccion_detalles", headers=headers, json=payload_detalles)
-                print(f"Respuesta Detalles DB Status: {res_det.status_code}")
+                print(f"Status Inserción Detalles: {res_det.status_code}")
 
-        # 3. Inserción en Tabla Secundaria: inspeccion_neumaticos
+        # 3. Desglose e inserción en inspeccion_neumaticos
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
@@ -168,15 +184,15 @@ async def receive_submission(request: Request):
                 })
             if payload_neumaticos:
                 res_neu = requests.post(f"{SUPABASE_URL}/rest/v1/inspeccion_neumaticos", headers=headers, json=payload_neumaticos)
-                print(f"Respuesta Neumáticos DB Status: {res_neu.status_code}")
+                print(f"Status Inserción Neumáticos: {res_neu.status_code}")
 
     except Exception as e:
         print(f"Excepción en submission: {e}")
 
-    # Respuesta OpenRosa OK para ODK Collect
+    # Respuesta OpenRosa OK
     response_xml = """<?xml version="1.0" encoding="UTF-8"?>
     <openrosa-response xmlns="http://openrosa.org/xforms/response">
-        <message nature="submit_success">Inspección recibida y procesada.</message>
+        <message nature="submit_success">Inspección recibida y procesada exitosamente.</message>
     </openrosa-response>"""
 
     return Response(
