@@ -36,7 +36,7 @@ def clean_float(val):
 async def root():
     return {"status": "ok", "message": "Servidor ODK Qorilazo activo"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101821)
+# 1. Endpoint OpenRosa FormList (Versión 2026101822)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -46,8 +46,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101821</version>
-        <hash>md5:qorilazo2026v21</hash>
+        <version>2026101822</version>
+        <hash>md5:qorilazo2026v22</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -62,7 +62,7 @@ async def download_form():
         return Response(content=xml_data, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
     return Response(status_code=404, content="Archivo XML no encontrado")
 
-# 3. Endpoint OpenRosa Submission
+# 3. Endpoint OpenRosa Submission (Con trazabilidad de errores HTTP 400)
 @app.post("/openrosa/submission")
 async def receive_submission(request: Request):
     try:
@@ -78,12 +78,14 @@ async def receive_submission(request: Request):
         headers = get_supabase_headers()
         codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
 
-        # Mapeo y subida de archivos/firmas al Bucket 'inspecciones_odk'
+        # Trazabilidad de archivos recibidos
         urls_archivos = {}
         for key, value in form.items():
+            print(f"-> Clave recibida en multipart: {key} - Tipo: {type(value)}")
             if isinstance(value, UploadFile) and key != "xml_submission_file":
                 try:
                     file_bytes = await value.read()
+                    print(f"   Tamaño archivo {key}: {len(file_bytes)} bytes")
                     if len(file_bytes) > 0:
                         filename = f"{codigo_placa}_{value.filename}"
                         upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
@@ -97,29 +99,24 @@ async def receive_submission(request: Request):
                         if res.status_code in [200, 201]:
                             public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
                             urls_archivos[key] = public_url
-                            
-                            # Mapeo directo por nombre del campo XML de ODK
-                            val_data_comb = clean_val(data.get("foto_combustible"))
-                            val_data_firm = clean_val(data.get("firma_operador"))
-                            if val_data_comb and val_data_comb in value.filename:
-                                urls_archivos["foto_combustible_url"] = public_url
-                            if val_data_firm and val_data_firm in value.filename:
-                                urls_archivos["firma_operador_url"] = public_url
+                            print(f"   [Exito Storage] {key} -> {public_url}")
                         else:
-                            print(f"Error subiendo {key} a Storage ({res.status_code}): {res.text}")
+                            print(f"   [Error Storage] {key} ({res.status_code}): {res.text}")
                 except Exception as err_file:
-                    print(f"Excepción procesando {key}: {err_file}")
+                    print(f"   [Excepcion Storage] {key}: {err_file}")
 
-        # Si el mapeo dinámico no coincidió, asigna las URLs por la posición del archivo enviado
-        foto_comb_url = urls_archivos.get("foto_combustible_url") or urls_archivos.get("foto_combustible", "")
-        firma_oper_url = urls_archivos.get("firma_operador_url") or urls_archivos.get("firma_operador", "")
+        # Asignación de URLs
+        foto_comb_url = urls_archivos.get("foto_combustible") or urls_archivos.get("foto_combustible_url", "")
+        firma_oper_url = urls_archivos.get("firma_operador") or urls_archivos.get("firma_operador_url", "")
 
-        if not foto_comb_url and len(urls_archivos) > 0:
-            foto_comb_url = list(urls_archivos.values())[0]
-        if not firma_oper_url and len(urls_archivos) > 1:
-            firma_oper_url = list(urls_archivos.values())[1]
+        # Respaldo si los nombres vinieron como 'file0', 'file1', etc.
+        all_urls = list(urls_archivos.values())
+        if not foto_comb_url and len(all_urls) > 0:
+            foto_comb_url = all_urls[0]
+        if not firma_oper_url and len(all_urls) > 1:
+            firma_oper_url = all_urls[1]
 
-        # 1. Guardar Registro Principal (inspecciones_guardia)
+        # 1. Inserción Principal
         payload_main = {
             "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
@@ -154,7 +151,7 @@ async def receive_submission(request: Request):
                 inspeccion_id = inserted[0].get("id")
                 print(f"-> Registro guardado con ID asignado: {inspeccion_id}")
 
-        # 2. Desglose e inserción en inspeccion_detalles
+        # 2. Inserción Detalles
         if inspeccion_id:
             payload_detalles = []
             prefix_keys = ["doc_", "cabina_", "motor_", "seg_", "herr_"]
@@ -168,8 +165,10 @@ async def receive_submission(request: Request):
             if payload_detalles:
                 res_det = requests.post(f"{SUPABASE_URL}/rest/v1/inspeccion_detalles", headers=headers, json=payload_detalles)
                 print(f"Status Inserción Detalles: {res_det.status_code}")
+                if res_det.status_code not in [200, 201]:
+                    print(f"-> DETALLE ERROR DETALLES: {res_det.text}")
 
-        # 3. Desglose e inserción en inspeccion_neumaticos
+        # 3. Inserción Neumáticos
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
@@ -185,6 +184,8 @@ async def receive_submission(request: Request):
             if payload_neumaticos:
                 res_neu = requests.post(f"{SUPABASE_URL}/rest/v1/inspeccion_neumaticos", headers=headers, json=payload_neumaticos)
                 print(f"Status Inserción Neumáticos: {res_neu.status_code}")
+                if res_neu.status_code not in [200, 201]:
+                    print(f"-> DETALLE ERROR NEUMATICOS: {res_neu.text}")
 
     except Exception as e:
         print(f"Excepción en submission: {e}")
