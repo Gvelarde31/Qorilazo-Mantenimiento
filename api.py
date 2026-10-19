@@ -1,11 +1,12 @@
 import os
 import time
+import io
 from datetime import datetime
 import xmltodict
 import requests
-from fastapi import FastAPI, Request, Response, UploadFile
+from fastapi import FastAPI, Request, Response
 
-app = FastAPI(title="Servidor ODK Qorilazo - Producción V41")
+app = FastAPI(title="Servidor ODK Qorilazo - Producción V42")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip('/')
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
@@ -87,19 +88,24 @@ def obtener_categoria(k):
 
 
 def aplanar_dict(d):
-    """Extrae el diccionario plano interno sin importar la clave raíz."""
+    """Extrae recursivamente el diccionario real de datos sin importar envoltorios XML."""
     if not isinstance(d, dict):
         return {}
+    
+    # Filtrar atributos XML (@id, @version, etc.)
     keys = [k for k in d.keys() if not k.startswith("@")]
+    
+    # Si la raíz es una envolvente (ej. <data> o <checklist_guardia_qorilazo_v1>)
     if len(keys) == 1 and isinstance(d[keys[0]], dict):
         return aplanar_dict(d[keys[0]])
+    
     return d
 
 
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"status": "ok", "message": "Servidor ODK Qorilazo Activo v41"}
+    return {"status": "ok", "message": "Servidor ODK Qorilazo Activo v42"}
 
 
 @app.get("/openrosa/formList")
@@ -116,7 +122,7 @@ async def form_list(request: Request):
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
         <version>2026101904</version>
-        <hash>md5:qorilazo2026v41</hash>
+        <hash>md5:qorilazo2026v42</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -142,62 +148,93 @@ async def receive_submission(request: Request):
         return Response(status_code=204, headers={"X-OpenRosa-Version": "1.0"})
 
     try:
+        print("\n=== INICIO DE RECEPCION MULTIPART V42 ===")
         form = await request.form()
-        print("\n=== INICIO DE RECEPCION MULTIPART V41 ===")
 
         data = {}
         uploaded_media_map = {}
         codigo_placa = "EQ"
         ts = int(time.time())
 
-        # 1. PARSEAR CUALQUIER ELEMENTO DEL MULTIPART
+        # Colección de todas las partes binarias recibidas
+        binary_parts = []
+
         for key, value in form.items():
             file_bytes = b""
-            filename_attr = ""
-            content_type_attr = "image/png"
+            filename_attr = key
+            content_type_attr = "application/octet-stream"
 
-            if isinstance(value, UploadFile):
+            if hasattr(value, "read"):
                 await value.seek(0)
                 file_bytes = await value.read()
-                filename_attr = value.filename or key
-                content_type_attr = value.content_type or "image/png"
+                filename_attr = getattr(value, "filename", key) or key
+                content_type_attr = getattr(value, "content_type", "image/png") or "image/png"
             elif isinstance(value, str):
                 file_bytes = value.encode("utf-8")
-                filename_attr = key
 
-            if not file_bytes:
+            if file_bytes:
+                binary_parts.append({
+                    "key": key,
+                    "filename": filename_attr,
+                    "content_type": content_type_attr,
+                    "bytes": file_bytes,
+                    "value_obj": value
+                })
+
+        # 1. EVALUAR Y PARSEAR EL XML PRIMERO
+        xml_encontrado = False
+        for part in binary_parts:
+            b = part["bytes"]
+            try:
+                # Verificar si es XML intentando parsear con xmltodict
+                parsed = xmltodict.parse(b)
+                data = aplanar_dict(parsed)
+                
+                # Verificar si pudimos extraer el código de placa u otros campos del formulario
+                if data and isinstance(data, dict):
+                    codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
+                    xml_encontrado = True
+                    print(f" -> [ÉXITO PARSEO XML]: Placa='{codigo_placa}', Operador='{data.get('nombre_operador')}', Guardia='{data.get('guardia')}'")
+                    print(f" -> Total de campos leídos del XML: {len(data)}")
+                    break
+            except Exception:
                 continue
 
-            # Intentar parsear como XML
-            parsed_ok = False
+        if not xml_encontrado:
+            print(" -> [ADVERTENCIA CRÍTICA]: No se pudo identificar ni parsear el XML en las partes recibidas.")
+
+        # 2. SUBIR ARCHIVOS DE IMAGEN/FIRMA A SUPABASE STORAGE
+        for part in binary_parts:
+            b = part["bytes"]
+            # Si esta parte es el XML, no la subimos como imagen
             try:
-                parsed_dict = xmltodict.parse(file_bytes)
-                data = aplanar_dict(parsed_dict)
-                codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
-                parsed_ok = True
-                print(f" -> [ÉXITO PARSEO XML]: Placa='{codigo_placa}', Operador='{data.get('nombre_operador')}'")
-                print(f" -> Total claves extraídas del XML: {len(data)}")
+                xmltodict.parse(b)
+                continue
             except Exception:
-                parsed_ok = False
+                pass
 
-            # Si no es XML, subir como archivo multimedia a Storage
-            if not parsed_ok and isinstance(value, UploadFile):
-                fname = f"{codigo_placa}_{ts}_{filename_attr}"
-                upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{fname}"
+            filename_attr = part["filename"]
+            key = part["key"]
+            content_type_attr = part["content_type"]
 
-                st_headers = {
-                    "apikey": SUPABASE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                    "Content-Type": content_type_attr,
-                    "x-upsert": "true"
-                }
-                res = requests.post(upload_url, headers=st_headers, data=file_bytes)
+            fname = f"{codigo_placa}_{ts}_{filename_attr}"
+            upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{fname}"
 
-                if res.status_code in [200, 201]:
-                    public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{fname}"
-                    uploaded_media_map[filename_attr] = public_url
-                    uploaded_media_map[key] = public_url
-                    print(f"    [STORAGE ÉXITO]: {public_url}")
+            st_headers = {
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": content_type_attr,
+                "x-upsert": "true"
+            }
+            res = requests.post(upload_url, headers=st_headers, data=b)
+
+            if res.status_code in [200, 201]:
+                public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{fname}"
+                uploaded_media_map[filename_attr] = public_url
+                uploaded_media_map[key] = public_url
+                print(f"    [STORAGE ÉXITO]: {public_url}")
+            else:
+                print(f"    [STORAGE ERROR]: {res.text}")
 
         headers = get_supabase_headers()
 
@@ -209,7 +246,7 @@ async def receive_submission(request: Request):
                 return uploaded_media_map[field_name]
             return None
 
-        # 2. INSERCIÓN EN inspecciones_guardia
+        # 3. INSERCIÓN EN TABLA PRINCIPAL: inspecciones_guardia
         payload_main = {
             "fecha_inspeccion": clean_date(data.get("fecha_inspeccion")),
             "guardia": normalizar_guardia(data.get("guardia")),
@@ -246,7 +283,7 @@ async def receive_submission(request: Request):
         else:
             print(f"-> Error DB Principal: {res_db.text}")
 
-        # 3. INSERCIÓN EN inspeccion_detalles
+        # 4. INSERCIÓN EN TABLA DE DETALLES: inspeccion_detalles
         if inspeccion_id:
             payload_detalles = []
             prefix_keys = ("doc_", "cabina_", "motor_", "seg_", "herr_")
@@ -268,11 +305,11 @@ async def receive_submission(request: Request):
                     headers=headers,
                     json=payload_detalles
                 )
-                print(f"Status Inserción Detalles: {res_det.status_code} ({len(payload_detalles)} registros enviados)")
+                print(f"Status Inserción Detalles: {res_det.status_code} ({len(payload_detalles)} ítems enviados)")
             else:
-                print("-> No se encontraron claves con prefijos de detalle en el XML.")
+                print("-> No se encontraron claves de detalles en el diccionario XML.")
 
-        # 4. INSERCIÓN EN inspeccion_neumaticos
+        # 5. INSERCIÓN EN TABLA DE NEUMÁTICOS: inspeccion_neumaticos
         if inspeccion_id:
             payload_neumaticos = []
             posiciones = [f"pos_{i}" for i in range(1, 11)] + ["pos_repuesto"]
