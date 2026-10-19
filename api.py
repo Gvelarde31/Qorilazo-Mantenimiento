@@ -58,9 +58,9 @@ def obtener_categoria(k):
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v32"}
+    return {"status": "ok", "message": "Servidor ODK Qorilazo activo v34"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101832)
+# 1. Endpoint OpenRosa FormList (Versión 2026101901)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -70,8 +70,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101832</version>
-        <hash>md5:qorilazo2026v32</hash>
+        <version>2026101901</version>
+        <hash>md5:qorilazo2026v34</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -91,8 +91,7 @@ async def download_form():
 async def receive_submission(request: Request):
     try:
         form = await request.form()
-        print("=== INICIO DE RECEPCION MULTIPART V32 ===")
-        print(f"Total elementos recibidos en form: {len(form)}")
+        print("=== INICIO DE RECEPCION MULTIPART V34 ===")
         
         xml_file = form.get("xml_submission_file")
         data = {}
@@ -105,18 +104,17 @@ async def receive_submission(request: Request):
         codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
         ts = int(time.time())
 
+        # Subida de imágenes al Storage 'inspecciones_odk' con URL corregida
         archivos_urls = []
         for key, value in form.items():
-            print(f"Clave enviada por ODK: '{key}' | Tipo: {type(value)}")
             if isinstance(value, UploadFile) and key != "xml_submission_file":
                 try:
                     await value.seek(0)
                     file_bytes = await value.read()
-                    print(f" -> Archivo '{key}': Nombre={value.filename}, Tamaño={len(file_bytes)} bytes")
+                    print(f" -> Procesando archivo '{key}' ({len(file_bytes)} bytes)")
                     
                     if len(file_bytes) > 0:
-                        clean_fn = value.filename.replace(" ", "_")
-                        filename = f"{codigo_placa}_{ts}_{clean_fn}"
+                        filename = f"{codigo_placa}_{ts}_{value.filename}"
                         upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
                         
                         st_headers = {
@@ -126,20 +124,23 @@ async def receive_submission(request: Request):
                             "x-upsert": "true"
                         }
                         res = requests.post(upload_url, headers=st_headers, data=file_bytes)
-                        print(f"    Respuesta Storage HTTP: {res.status_code}")
+                        print(f"    [STORAGE HTTP STATUS]: {res.status_code}")
                         
                         if res.status_code in [200, 201]:
                             public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
                             archivos_urls.append(public_url)
-                            print(f"    [ÉXITO STORAGE] URL: {public_url}")
+                            print(f"    [ÉXITO URL CREADA]: {public_url}")
                         else:
-                            print(f"    [ERROR STORAGE] {res.text}")
+                            print(f"    [ERROR EN STORAGE]: {res.text}")
                 except Exception as err_file:
-                    print(f"Excepción procesando archivo {key}: {err_file}")
+                    print(f"Excepción subiendo {key}: {err_file}")
 
         # Asignación de URLs
         foto_combust = archivos_urls[0] if len(archivos_urls) > 0 else ""
         firma_operad = archivos_urls[1] if len(archivos_urls) > 1 else ""
+
+        print(f"-> URL asignada a Foto Combustible: '{foto_combust}'")
+        print(f"-> URL asignada a Firma Operador: '{firma_operad}'")
 
         # 1. Registro Principal (inspecciones_guardia)
         payload_main = {
@@ -174,7 +175,7 @@ async def receive_submission(request: Request):
             inserted = res_db.json()
             if isinstance(inserted, list) and len(inserted) > 0:
                 inspeccion_id = inserted[0].get("id")
-                print(f"-> Registro principal con ID: {inspeccion_id}")
+                print(f"-> Registro principal guardado con ID: {inspeccion_id}")
 
         # 2. Inserción en inspeccion_detalles
         if inspeccion_id:
