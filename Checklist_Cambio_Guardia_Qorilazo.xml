@@ -8,17 +8,15 @@
     <model>
       <instance>
         <data id="checklist_guardia_qorilazo_v1">
-          <!-- 1. Datos Generales -->
+          <!-- 1. Encabezado / Datos Generales -->
           <fecha_inspeccion/>
           <guardia/>
-          <codigo_placa/>
-          <codigo_interno/>
-          <marca/>
+          <nombre_operador/>
           <equipo/>
+          <marca/>
+          <codigo_placa/>
           <km_hr/>
           <adblue/>
-          <nombre_operador/>
-          <dni_operador/>
 
           <!-- 2. Documentación -->
           <doc_fotocheck>OK</doc_fotocheck>
@@ -30,6 +28,7 @@
           <doc_certificado_gps>OK</doc_certificado_gps>
           <doc_certificado_operatividad>OK</doc_certificado_operatividad>
           <doc_inspeccion_semestral>OK</doc_inspeccion_semestral>
+          <doc_checklist_mantenimiento>OK</doc_checklist_mantenimiento>
 
           <!-- 3. Cabina de Operación -->
           <cabina_asiento>BUENO</cabina_asiento>
@@ -41,6 +40,7 @@
           <cabina_vidrios>BUENO</cabina_vidrios>
           <cabina_tapiz>BUENO</cabina_tapiz>
           <cabina_chapas>BUENO</cabina_chapas>
+          <cabina_otros/>
 
           <!-- 4. Compartimiento de Motor -->
           <motor_tapa_aceite>BUENO</motor_tapa_aceite>
@@ -48,6 +48,7 @@
           <motor_tapa_radiador>BUENO</motor_tapa_radiador>
           <motor_tapa_hidraulico>BUENO</motor_tapa_hidraulico>
           <motor_reservorio_limpia>BUENO</motor_reservorio_limpia>
+          <motor_otros/>
 
           <!-- 5. Elementos de Seguridad -->
           <seg_conos>BUENO</seg_conos>
@@ -72,20 +73,20 @@
           <herr_linterna>BUENO</herr_linterna>
           <herr_martillo_goma>BUENO</herr_martillo_goma>
 
-          <!-- 7. Neumáticos -->
-          <pos_1_mm/>
-          <pos_1_est>BUENO</pos_1_est>
-          <pos_2_mm/>
-          <pos_2_est>BUENO</pos_2_est>
-          <pos_3_mm/>
-          <pos_3_est>BUENO</pos_3_est>
-          <pos_4_mm/>
-          <pos_4_est>BUENO</pos_4_est>
-          <pos_repuesto_mm/>
-          <pos_repuesto_est>BUENO</pos_repuesto_est>
+          <!-- 7. Neumáticos (1 a 10 + Repuesto) -->
+          <pos_1_mm/><pos_1_est>BUENO</pos_1_est>
+          <pos_2_mm/><pos_2_est>BUENO</pos_2_est>
+          <pos_3_mm/><pos_3_est>BUENO</pos_3_est>
+          <pos_4_mm/><pos_4_est>BUENO</pos_4_est>
+          <pos_5_mm/><pos_5_est>BUENO</pos_5_est>
+          <pos_6_mm/><pos_6_est>BUENO</pos_6_est>
+          <pos_7_mm/><pos_7_est>BUENO</pos_7_est>
+          <pos_8_mm/><pos_8_est>BUENO</pos_8_est>
+          <pos_9_mm/><pos_9_est>BUENO</pos_9_est>
+          <pos_10_mm/><pos_10_est>BUENO</pos_10_est>
+          <pos_repuesto_mm/><pos_repuesto_est>BUENO</pos_repuesto_est>
 
           <!-- 8. Evidencias y Observaciones -->
-          <foto_combustible/>
           <foto_cabina/>
           <foto_hallazgo_1/>
           <foto_hallazgo_2/>
@@ -101,12 +102,11 @@
       <!-- Bindings y Validaciones -->
       <bind nodeset="/data/fecha_inspeccion" type="date" jr:preload="date" jr:preloadParams="today"/>
       <bind nodeset="/data/guardia" type="string" required="true()"/>
+      <bind nodeset="/data/nombre_operador" type="string" required="true()"/>
       <bind nodeset="/data/codigo_placa" type="string" required="true()"/>
       <bind nodeset="/data/km_hr" type="decimal" required="true()"/>
-      <bind nodeset="/data/nombre_operador" type="string" required="true()"/>
 
       <!-- Fotos y Firmas -->
-      <bind nodeset="/data/foto_combustible" type="binary" required="true()"/>
       <bind nodeset="/data/foto_cabina" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_1" type="binary"/>
       <bind nodeset="/data/foto_hallazgo_2" type="binary"/>
@@ -116,7 +116,7 @@
   </h:head>
 
   <h:body>
-    <!-- BLOQUE 1: DATOS GENERALES CON LISTAS DESPLEGABLES CONECTADAS A SUPABASE -->
+    <!-- BLOQUE 1: DATOS GENERALES -->
     <group appearance="field-list">
       <label>📋 1. DATOS GENERALES DE INSPECCIÓN</label>
       <select1 ref="/data/guardia" appearance="horizontal">
@@ -124,29 +124,27 @@
         <item><label>ENTRANTE</label><value>ENTRANTE</value></item>
         <item><label>SALIENTE</label><value>SALIENTE</value></item>
       </select1>
-      
-      <!-- Lista Desplegable Dinámica de Placas -->
-      <select1 ref="/data/codigo_placa" appearance="minimal">
-        <label>Seleccione Código / Placa del Equipo:</label>
-        <!-- ITEMS_PLACAS -->
-      </select1>
-      
-      <input ref="/data/km_hr">
-        <label>Lectura Actual (KM / HR):</label>
+      <input ref="/data/nombre_operador">
+        <label>Nombre del Operador:</label>
       </input>
-      
-      <!-- Lista Desplegable Dinámica de Operadores -->
-      <select1 ref="/data/nombre_operador" appearance="minimal">
-        <label>Seleccione Operador Registrado:</label>
-        <!-- ITEMS_OPERADORES -->
-      </select1>
-      
-      <input ref="/data/dni_operador">
-        <label>DNI del Operador (Opcional):</label>
+      <input ref="/data/equipo">
+        <label>Equipo:</label>
+      </input>
+      <input ref="/data/marca">
+        <label>Marca:</label>
+      </input>
+      <input ref="/data/codigo_placa">
+        <label>Código / Placa:</label>
+      </input>
+      <input ref="/data/km_hr">
+        <label>KM / HR:</label>
+      </input>
+      <input ref="/data/adblue">
+        <label>AdBlue:</label>
       </input>
     </group>
 
-    <!-- BLOQUE 2: DOCUMENTACIÓN DEL VEHÍCULO -->
+    <!-- BLOQUE 2: DOCUMENTACIÓN -->
     <group appearance="field-list">
       <label>📄 2. DOCUMENTACIÓN DEL VEHÍCULO</label>
       <select1 ref="/data/doc_fotocheck" appearance="horizontal">
@@ -168,13 +166,13 @@
         <item><label>VENCE</label><value>VENCE</value></item>
       </select1>
       <select1 ref="/data/doc_inspeccion_tecnica" appearance="horizontal">
-        <label>Inspección Técnica Vehicular:</label>
+        <label>Inspección Técnica:</label>
         <item><label>OK</label><value>OK</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>VENCE</label><value>VENCE</value></item>
       </select1>
       <select1 ref="/data/doc_tarjeta_circulacion" appearance="horizontal">
-        <label>Tarjeta de Circulación / Mercancías:</label>
+        <label>Tarjeta Circulación/Mercancías:</label>
         <item><label>OK</label><value>OK</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>VENCE</label><value>VENCE</value></item>
@@ -203,6 +201,12 @@
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>VENCE</label><value>VENCE</value></item>
       </select1>
+      <select1 ref="/data/doc_checklist_mantenimiento" appearance="horizontal">
+        <label>Check List de Mantenimiento:</label>
+        <item><label>OK</label><value>OK</value></item>
+        <item><label>FALTA</label><value>FALTA</value></item>
+        <item><label>VENCE</label><value>VENCE</value></item>
+      </select1>
     </group>
 
     <!-- BLOQUE 3: CABINA DE OPERACIÓN -->
@@ -215,7 +219,7 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/cabina_correa" appearance="horizontal">
-        <label>Correa / Cinturón de Seguridad:</label>
+        <label>Correa de Seguridad:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -233,7 +237,7 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/cabina_retrovisores" appearance="horizontal">
-        <label>Retrovisores Exteriores:</label>
+        <label>Retrovisores:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -262,6 +266,9 @@
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
+      <input ref="/data/cabina_otros">
+        <label>Otros (Cabina):</label>
+      </input>
     </group>
 
     <!-- BLOQUE 4: COMPARTIMIENTO DE MOTOR -->
@@ -274,7 +281,7 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/motor_medidor_aceite" appearance="horizontal">
-        <label>Medidor de Aceite / Varilla:</label>
+        <label>Medidor de Aceite:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -292,11 +299,14 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/motor_reservorio_limpia" appearance="horizontal">
-        <label>Reservorio Limpiaparabrisas:</label>
+        <label>Reservorio Limpia Parabrisas:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
+      <input ref="/data/motor_otros">
+        <label>Otros (Motor):</label>
+      </input>
     </group>
 
     <!-- BLOQUE 5: ELEMENTOS DE SEGURIDAD -->
@@ -315,13 +325,13 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/seg_tacos" appearance="horizontal">
-        <label>Tacos de Seguridad:</label>
+        <label>Tacos:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/seg_extintor" appearance="horizontal">
-        <label>Extintor PQS Inspeccionado:</label>
+        <label>Extintor:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -333,7 +343,7 @@
         <item><label>N/A</label><value>N/A</value></item>
       </select1>
       <select1 ref="/data/seg_botiquin" appearance="horizontal">
-        <label>Botiquín de Primeros Auxilios:</label>
+        <label>Botiquín:</label>
         <item><label>BUENO</label><value>BUENO</value></item>
         <item><label>FALTA</label><value>FALTA</value></item>
         <item><label>N/A</label><value>N/A</value></item>
@@ -423,87 +433,71 @@
       </select1>
     </group>
 
-    <!-- BLOQUE 7: NEUMÁTICOS -->
+    <!-- BLOQUE 7: NEUMÁTICOS (1 A 10 + REPUESTO) -->
     <group appearance="field-list">
-      <label>🚙 7. NEUMÁTICOS (MEDICIÓN Y ESTADO)</label>
-      <input ref="/data/pos_1_mm">
-        <label>Posición 1 - Cocada (mm):</label>
-      </input>
-      <select1 ref="/data/pos_1_est" appearance="horizontal">
-        <label>Estado Posición 1:</label>
-        <item><label>BUENO</label><value>BUENO</value></item>
-        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
-        <item><label>N/A</label><value>N/A</value></item>
-      </select1>
-      <input ref="/data/pos_2_mm">
-        <label>Posición 2 - Cocada (mm):</label>
-      </input>
-      <select1 ref="/data/pos_2_est" appearance="horizontal">
-        <label>Estado Posición 2:</label>
-        <item><label>BUENO</label><value>BUENO</value></item>
-        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
-        <item><label>N/A</label><value>N/A</value></item>
-      </select1>
-      <input ref="/data/pos_3_mm">
-        <label>Posición 3 - Cocada (mm):</label>
-      </input>
-      <select1 ref="/data/pos_3_est" appearance="horizontal">
-        <label>Estado Posición 3:</label>
-        <item><label>BUENO</label><value>BUENO</value></item>
-        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
-        <item><label>N/A</label><value>N/A</value></item>
-      </select1>
-      <input ref="/data/pos_4_mm">
-        <label>Posición 4 - Cocada (mm):</label>
-      </input>
-      <select1 ref="/data/pos_4_est" appearance="horizontal">
-        <label>Estado Posición 4:</label>
-        <item><label>BUENO</label><value>BUENO</value></item>
-        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
-        <item><label>N/A</label><value>N/A</value></item>
-      </select1>
-      <input ref="/data/pos_repuesto_mm">
-        <label>Neumático Repuesto - Cocada (mm):</label>
-      </input>
-      <select1 ref="/data/pos_repuesto_est" appearance="horizontal">
-        <label>Estado Repuesto:</label>
-        <item><label>BUENO</label><value>BUENO</value></item>
-        <item><label>DEFECTUOSO</label><value>DEFECTUOSO</value></item>
-        <item><label>N/A</label><value>N/A</value></item>
-      </select1>
+      <label>🚙 7. NEUMÁTICOS</label>
+      <input ref="/data/pos_1_mm"><label>Posición 1 (mm):</label></input>
+      <select1 ref="/data/pos_1_est" appearance="horizontal"><label>Estado Pos. 1:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_2_mm"><label>Posición 2 (mm):</label></input>
+      <select1 ref="/data/pos_2_est" appearance="horizontal"><label>Estado Pos. 2:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_3_mm"><label>Posición 3 (mm):</label></input>
+      <select1 ref="/data/pos_3_est" appearance="horizontal"><label>Estado Pos. 3:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_4_mm"><label>Posición 4 (mm):</label></input>
+      <select1 ref="/data/pos_4_est" appearance="horizontal"><label>Estado Pos. 4:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_5_mm"><label>Posición 5 (mm):</label></input>
+      <select1 ref="/data/pos_5_est" appearance="horizontal"><label>Estado Pos. 5:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_6_mm"><label>Posición 6 (mm):</label></input>
+      <select1 ref="/data/pos_6_est" appearance="horizontal"><label>Estado Pos. 6:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_7_mm"><label>Posición 7 (mm):</label></input>
+      <select1 ref="/data/pos_7_est" appearance="horizontal"><label>Estado Pos. 7:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_8_mm"><label>Posición 8 (mm):</label></input>
+      <select1 ref="/data/pos_8_est" appearance="horizontal"><label>Estado Pos. 8:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_9_mm"><label>Posición 9 (mm):</label></input>
+      <select1 ref="/data/pos_9_est" appearance="horizontal"><label>Estado Pos. 9:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_10_mm"><label>Posición 10 (mm):</label></input>
+      <select1 ref="/data/pos_10_est" appearance="horizontal"><label>Estado Pos. 10:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
+
+      <input ref="/data/pos_repuesto_mm"><label>Repuesto (mm):</label></input>
+      <select1 ref="/data/pos_repuesto_est" appearance="horizontal"><label>Estado Repuesto:</label><item><label>BUENO</label><value>BUENO</value></item><item><label>DEFECT</label><value>DEFECT</value></item><item><label>N/A</label><value>N/A</value></item></select1>
     </group>
 
-    <!-- BLOQUE 8: FOTOS Y OBSERVACIONES DE CAMPO -->
+    <!-- BLOQUE 8: OBSERVACIONES Y FOTOS -->
     <group appearance="field-list">
-      <label>📸 8. EVIDENCIAS FOTOGRÁFICAS Y OBSERVACIONES</label>
-      <upload ref="/data/foto_combustible" mediatype="image/*">
-        <label>📷 Foto Nivel de Combustible / Tablero (Obligatorio):</label>
-      </upload>
+      <label>📸 8. EVIDENCIAS Y OBSERVACIONES</label>
       <upload ref="/data/foto_cabina" mediatype="image/*">
-        <label>📷 Foto de la Cabina de Operación (Opcional):</label>
+        <label>📷 Foto de la Cabina / Inspección (Opcional):</label>
       </upload>
       <upload ref="/data/foto_hallazgo_1" mediatype="image/*">
-        <label>📷 Foto Hallazgo / Raspones 1 (Opcional):</label>
+        <label>📷 Foto Hallazgo 1 (Opcional):</label>
       </upload>
       <upload ref="/data/foto_hallazgo_2" mediatype="image/*">
-        <label>📷 Foto Hallazgo / Raspones 2 (Opcional):</label>
+        <label>📷 Foto Hallazgo 2 (Opcional):</label>
       </upload>
       <input ref="/data/observaciones_estado_equipo">
-        <label>Observaciones del Estado del Equipo (Raspones/Abolladuras):</label>
+        <label>Verificar estado del equipo / Especificar (Raspones, abolladuras, rupturas):</label>
       </input>
       <input ref="/data/observaciones_adicionales">
-        <label>Observaciones Adicionales y/o Elementos Faltantes:</label>
+        <label>Observaciones adicionales y/o elementos faltantes:</label>
       </input>
     </group>
 
-    <!-- BLOQUE 9: FIRMAS DIGITALES DE CONFORMIDAD -->
+    <!-- BLOQUE 9: FIRMAS -->
     <group appearance="field-list">
       <label>✍️ 9. FIRMAS DE CONFORMIDAD</label>
       <upload ref="/data/firma_operador" mediatype="image/*" appearance="draw">
-        <label>✍️ Firma del Operador (Obligatoria):</label>
+        <label>✍️ Firma Operador (Obligatoria):</label>
       </upload>
       <upload ref="/data/firma_supervisor" mediatype="image/*" appearance="draw">
-        <label>✍️ Firma Supervisor de Operaciones (Opcional):</label>
+        <label>✍️ Firma Supervisor Operaciones (Opcional):</label>
       </upload>
     </group>
   </h:body>
