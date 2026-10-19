@@ -32,7 +32,7 @@ def clean_float(val):
         pass
     return 0.0
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101813)
+# 1. Endpoint OpenRosa FormList (Versión 2026101814)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -42,8 +42,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101813</version>
-        <hash>md5:qorilazo2026v13</hash>
+        <version>2026101814</version>
+        <hash>md5:qorilazo2026v14</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -58,7 +58,7 @@ async def download_form():
         return Response(content=xml_data, media_type="text/xml", headers={"X-OpenRosa-Version": "1.0"})
     return Response(status_code=404, content="Archivo XML no encontrado")
 
-# 3. Endpoint OpenRosa Submission (Con foto_combustible_url incluida)
+# 3. Endpoint OpenRosa Submission
 @app.post("/openrosa/submission")
 async def receive_submission(request: Request):
     try:
@@ -71,7 +71,7 @@ async def receive_submission(request: Request):
         parsed = xmltodict.parse(content)
         data = parsed.get("data", {})
 
-        # Subida de imágenes y firmas al Storage 'inspecciones_odk'
+        # Subida de fotografías y firmas al Bucket 'inspecciones_odk'
         urls_archivos = {}
         for key, value in form.items():
             if isinstance(value, UploadFile) and key != "xml_submission_file":
@@ -90,7 +90,7 @@ async def receive_submission(request: Request):
                     if res.status_code in [200, 201]:
                         urls_archivos[key] = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
 
-        # Mapeo completo asegurando foto_combustible_url
+        # Payload de inserción en Supabase
         payload = {
             "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
@@ -102,8 +102,6 @@ async def receive_submission(request: Request):
             "adblue": clean_val(data.get("adblue")),
             "observaciones_estado_equipo": clean_val(data.get("observaciones_estado_equipo")),
             "observaciones_adicionales": clean_val(data.get("observaciones_adicionales")),
-            
-            # Se incluyen todas las URLs de imágenes (incluso si son vacías)
             "foto_combustible_url": urls_archivos.get("foto_combustible", ""),
             "foto_cabina_url": urls_archivos.get("foto_cabina", ""),
             "foto_hallazgo_1_url": urls_archivos.get("foto_hallazgo_1", ""),
@@ -112,7 +110,7 @@ async def receive_submission(request: Request):
             "firma_supervisor_url": urls_archivos.get("firma_supervisor", "")
         }
 
-        # Guardar inspección en Supabase
+        # Guardar registros en la base de datos de Supabase
         res_db = requests.post(
             f"{SUPABASE_URL}/rest/v1/inspecciones_guardia", 
             headers=HEADERS_SUPABASE, 
@@ -120,9 +118,9 @@ async def receive_submission(request: Request):
         )
 
         if res_db.status_code not in [200, 201]:
-            print(f"Error Supabase DB: {res_db.status_code} - {res_db.text}")
+            print(f"Error Supabase DB ({res_db.status_code}): {res_db.text}")
 
-        # Respuesta estándar OpenRosa
+        # Respuesta XML de éxito exigida por OpenRosa
         response_xml = """<?xml version="1.0" encoding="UTF-8"?>
         <openrosa-response xmlns="http://openrosa.org/xforms/response">
             <message nature="submit_success">Inspección recibida y registrada exitosamente.</message>
