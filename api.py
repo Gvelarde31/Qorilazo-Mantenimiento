@@ -59,7 +59,7 @@ def obtener_categoria(k):
 async def root():
     return {"status": "ok", "message": "Servidor ODK Qorilazo activo"}
 
-# 1. Endpoint OpenRosa FormList (Versión 2026101828)
+# 1. Endpoint OpenRosa FormList (Versión 2026101829)
 @app.get("/openrosa/formList")
 async def form_list(request: Request):
     host_url = str(request.base_url).rstrip('/')
@@ -69,8 +69,8 @@ async def form_list(request: Request):
         <formID>checklist_guardia_qorilazo_v1</formID>
         <name>Check List Cambio de Guardia - Qorilazo</name>
         <majorMinorVersion>1</majorMinorVersion>
-        <version>2026101828</version>
-        <hash>md5:qorilazo2026v28</hash>
+        <version>2026101829</version>
+        <hash>md5:qorilazo2026v29</hash>
         <downloadUrl>{host_url}/openrosa/forms/checklist.xml</downloadUrl>
       </xform>
     </xforms>"""
@@ -101,12 +101,15 @@ async def receive_submission(request: Request):
         headers = get_supabase_headers()
         codigo_placa = clean_val(data.get("codigo_placa")) or "EQ"
 
-        # Subida de fotografías y firmas al Storage 'inspecciones_odk'
+        # Procesamiento y subida de imágenes al Storage 'inspecciones_odk'
         archivos_urls = []
         for key, value in form.items():
             if isinstance(value, UploadFile) and key != "xml_submission_file":
                 try:
+                    await value.seek(0)
                     file_bytes = await value.read()
+                    print(f"-> Evaluando archivo {key}: {len(file_bytes)} bytes")
+                    
                     if len(file_bytes) > 0:
                         filename = f"{codigo_placa}_{value.filename}"
                         upload_url = f"{SUPABASE_URL}/storage/v1/object/inspecciones_odk/{filename}"
@@ -117,21 +120,22 @@ async def receive_submission(request: Request):
                             "Content-Type": value.content_type or "image/png"
                         }
                         res = requests.post(upload_url, headers=st_headers, data=file_bytes)
-                        print(f"Subiendo {filename} a Storage -> Status: {res.status_code}")
+                        print(f"   Subida Storage Status {key}: {res.status_code}")
                         
                         if res.status_code in [200, 201]:
                             public_url = f"{SUPABASE_URL}/storage/v1/object/public/inspecciones_odk/{filename}"
                             archivos_urls.append(public_url)
+                            print(f"   [ÉXITO] URL pública: {public_url}")
                         else:
-                            print(f"Error Storage detalle: {res.text}")
+                            print(f"   [ERROR STORAGE] {res.text}")
                 except Exception as err_file:
                     print(f"Excepción subiendo {key}: {err_file}")
 
-        # Asignación de las URLs públicas
+        # Asignación de URLs
         foto_combust = archivos_urls[0] if len(archivos_urls) > 0 else ""
         firma_operad = archivos_urls[1] if len(archivos_urls) > 1 else ""
 
-        # 1. Inserción Principal (inspecciones_guardia)
+        # 1. Registro Principal (inspecciones_guardia)
         payload_main = {
             "fecha_inspeccion": clean_val(data.get("fecha_inspeccion")),
             "guardia": clean_val(data.get("guardia")),
